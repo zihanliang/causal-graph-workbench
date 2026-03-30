@@ -1,4 +1,4 @@
-import type { AnalysisResult, GraphSpec } from "@causal-workbench/shared";
+import type { AnalysisResult, GraphSpec } from "@causal-graph-workbench/shared";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import {
@@ -75,7 +75,7 @@ export function TopBar({ graph, analysis, graphShellRef, isAnalyzing, apiError }
     {
       label: "Markdown report",
       run: async () => {
-        downloadMarkdownReport("causal-analysis-report.md", graph, analysis, dataContext);
+        downloadMarkdownReport("causal-graph-workbench-report.md", graph, analysis, dataContext);
         setActionState({ tone: "success", message: "Markdown report exported." });
       },
     },
@@ -89,7 +89,7 @@ export function TopBar({ graph, analysis, graphShellRef, isAnalyzing, apiError }
     {
       label: "Graph SVG",
       run: async () => {
-        downloadGraphSvg("causal-graph.svg", graph, analysis);
+        downloadGraphSvg("causal-graph-workbench.svg", graph, analysis);
         setActionState({ tone: "success", message: "Graph exported as SVG." });
       },
     },
@@ -99,7 +99,7 @@ export function TopBar({ graph, analysis, graphShellRef, isAnalyzing, apiError }
         if (!graphShellRef.current) {
           throw new Error("Graph canvas is not ready for PNG export.");
         }
-        await downloadGraphPng("causal-graph.png", graphShellRef.current);
+        await downloadGraphPng("causal-graph-workbench.png", graphShellRef.current);
         setActionState({ tone: "success", message: "Graph exported as PNG." });
       },
     },
@@ -152,7 +152,7 @@ export function TopBar({ graph, analysis, graphShellRef, isAnalyzing, apiError }
           <button
             type="button"
             onClick={() => {
-              downloadJsonFile("causal-workbench-project.json", buildProjectSnapshot());
+              downloadJsonFile("causal-graph-workbench-project.json", buildProjectSnapshot());
               setActionState({ tone: "success", message: "Project snapshot saved." });
             }}
           >

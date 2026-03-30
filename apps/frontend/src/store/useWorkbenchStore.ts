@@ -4,7 +4,7 @@ import type {
   ExplainableSelection,
   GraphTemplate,
   UploadedDataset,
-} from "@causal-workbench/shared";
+} from "@causal-graph-workbench/shared";
 import { create } from "zustand";
 
 import { createNode, createNodeId, graphToEdgeListText, makeEdgeId, parseEdgeListText } from "../lib/edgeList";

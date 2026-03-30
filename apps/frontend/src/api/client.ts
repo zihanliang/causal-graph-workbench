@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResult, GraphTemplate } from "@causal-workbench/shared";
+import type { AnalysisRequest, AnalysisResult, GraphTemplate } from "@causal-graph-workbench/shared";
 
 import { apiUrl } from "../lib/urls";
 

@@ -1,4 +1,4 @@
-import type { AdjustmentSetSummary, AnalysisResult, DataDiagnostics, PathEvaluation, VariableType } from "@causal-workbench/shared";
+import type { AdjustmentSetSummary, AnalysisResult, DataDiagnostics, PathEvaluation, VariableType } from "@causal-graph-workbench/shared";
 import { useEffect, useMemo, useState } from "react";
 
 import { CollapsibleSection } from "./CollapsibleSection";

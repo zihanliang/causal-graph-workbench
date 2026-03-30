@@ -1,4 +1,4 @@
-import type { AnalysisResult } from "@causal-workbench/shared";
+import type { AnalysisResult } from "@causal-graph-workbench/shared";
 
 import { getExplainableDisplayLabel, getExplainableKindLabel } from "../lib/explainableLabel";
 import { useWorkbenchStore } from "../store/useWorkbenchStore";

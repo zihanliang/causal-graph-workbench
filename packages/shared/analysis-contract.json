@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://causal-workbench.local/analysis-contract.json",
+  "$id": "https://causal-graph-workbench.local/analysis-contract.json",
   "title": "Causal Graph Workbench Analysis Contract",
   "description": "Canonical shared request/result contract for the user-specified DAG backdoor-adjustment workbench.",
   "$comment": "Contract version 0.2.0",

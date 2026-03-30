@@ -1,4 +1,4 @@
-import type { GraphEdge, GraphNode, GraphSpec } from "@causal-workbench/shared";
+import type { GraphEdge, GraphNode, GraphSpec } from "@causal-graph-workbench/shared";
 
 import { layoutGraph } from "./layout";
 

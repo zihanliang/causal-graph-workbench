@@ -1,4 +1,4 @@
-import type { AnalysisResult, GraphSpec } from "@causal-workbench/shared";
+import type { AnalysisResult, GraphSpec } from "@causal-graph-workbench/shared";
 import type { RefObject } from "react";
 
 import { GraphCanvas } from "./GraphCanvas";

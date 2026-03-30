@@ -1,4 +1,4 @@
-import type { AnalysisResult, ExplainableSelection } from "@causal-workbench/shared";
+import type { AnalysisResult, ExplainableSelection } from "@causal-graph-workbench/shared";
 
 export function getExplainableKindLabel(selection: ExplainableSelection | null): string {
   if (!selection) {

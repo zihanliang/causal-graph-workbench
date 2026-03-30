@@ -1,4 +1,4 @@
-import type { DataContext, GraphSpec, UploadedDataset } from "@causal-workbench/shared";
+import type { DataContext, GraphSpec, UploadedDataset } from "@causal-graph-workbench/shared";
 
 export interface ProjectSnapshot {
   version: string;

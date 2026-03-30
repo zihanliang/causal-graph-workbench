@@ -1,4 +1,4 @@
-import type { GraphTemplate } from "@causal-workbench/shared";
+import type { GraphTemplate } from "@causal-graph-workbench/shared";
 
 export const fallbackTemplates: GraphTemplate[] = [
   {

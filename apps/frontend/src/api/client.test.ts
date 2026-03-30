@@ -1,4 +1,4 @@
-import type { AnalysisRequest } from "@causal-workbench/shared";
+import type { AnalysisRequest } from "@causal-graph-workbench/shared";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { analyzeGraph, fetchTemplates } from "./client";

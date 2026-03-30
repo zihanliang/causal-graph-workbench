@@ -1,4 +1,4 @@
-import type { AnalysisResult, DataContext, GraphSpec } from "@causal-workbench/shared";
+import type { AnalysisResult, DataContext, GraphSpec } from "@causal-graph-workbench/shared";
 import { toPng } from "html-to-image";
 
 import { isProjectSnapshot, type ProjectSnapshot } from "./projectSnapshot";

@@ -110,12 +110,12 @@ npm run dev:backend
 
 ## Deployment Configuration
 
-For a GitHub Pages frontend served from `/dag-workbench` and a Render backend:
+For a GitHub Pages frontend served from `/causal-graph-workbench` and a Render backend:
 
 Frontend build environment:
 
 ```bash
-VITE_BASE_PATH=/dag-workbench/
+VITE_BASE_PATH=/causal-graph-workbench/
 VITE_API_BASE_URL=https://your-render-service.onrender.com/api
 ```
 
@@ -180,7 +180,7 @@ The same demo is exposed directly in the UI as an example project.
 ### Frontend tests
 
 ```bash
-npm run test --workspace @causal-workbench/frontend
+npm run test --workspace @causal-graph-workbench/frontend
 ```
 
 ### Backend tests
@@ -198,7 +198,7 @@ npm run typecheck
 ### Frontend build
 
 ```bash
-npm run build --workspace @causal-workbench/frontend
+npm run build --workspace @causal-graph-workbench/frontend
 ```
 
 ### Full root verification

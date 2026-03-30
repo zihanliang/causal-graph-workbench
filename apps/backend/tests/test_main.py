@@ -8,6 +8,6 @@ def test_allowed_origins_from_env_keeps_local_defaults_and_adds_configured_origi
 
 
 def test_allowed_origins_from_env_ignores_blank_entries() -> None:
-    origins = allowed_origins_from_env(" , https://dag-workbench.zihanliang.com , ")
+    origins = allowed_origins_from_env(" , https://causal-graph-workbench.zihanliang.com , ")
 
-    assert origins == [*DEFAULT_ALLOWED_ORIGINS, "https://dag-workbench.zihanliang.com"]
+    assert origins == [*DEFAULT_ALLOWED_ORIGINS, "https://causal-graph-workbench.zihanliang.com"]

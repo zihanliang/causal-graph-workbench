@@ -1,4 +1,4 @@
-import type { GraphSpec } from "@causal-workbench/shared";
+import type { GraphSpec } from "@causal-graph-workbench/shared";
 
 export function layoutGraph(graph: GraphSpec): GraphSpec {
   const incoming = new Map<string, number>();

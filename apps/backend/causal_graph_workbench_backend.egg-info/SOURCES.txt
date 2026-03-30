@@ -12,11 +12,11 @@ app/core/roles.py
 app/core/validation.py
 app/models/schemas.py
 app/services/analysis_service.py
-causal_analysis_workbench_backend.egg-info/PKG-INFO
-causal_analysis_workbench_backend.egg-info/SOURCES.txt
-causal_analysis_workbench_backend.egg-info/dependency_links.txt
-causal_analysis_workbench_backend.egg-info/requires.txt
-causal_analysis_workbench_backend.egg-info/top_level.txt
+causal_graph_workbench_backend.egg-info/PKG-INFO
+causal_graph_workbench_backend.egg-info/SOURCES.txt
+causal_graph_workbench_backend.egg-info/dependency_links.txt
+causal_graph_workbench_backend.egg-info/requires.txt
+causal_graph_workbench_backend.egg-info/top_level.txt
 tests/test_adjustment_engine.py
 tests/test_codegen.py
 tests/test_data_diagnostics.py
