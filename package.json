@@ -1,0 +1,20 @@
+{
+  "name": "causal-analysis-workbench",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/frontend",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace @causal-workbench/frontend\" \"python3 -m uvicorn apps.backend.app.main:app --reload --app-dir . --port 8000\"",
+    "dev:frontend": "npm run dev --workspace @causal-workbench/frontend",
+    "dev:backend": "python3 -m uvicorn apps.backend.app.main:app --reload --app-dir . --port 8000",
+    "typecheck": "npm run typecheck --workspace @causal-workbench/frontend",
+    "build": "npm run build --workspace @causal-workbench/frontend",
+    "test": "npm run test --workspace @causal-workbench/frontend && python3 -m pytest apps/backend/tests"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

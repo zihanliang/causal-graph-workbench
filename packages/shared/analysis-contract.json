@@ -1,0 +1,1100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://causal-workbench.local/analysis-contract.json",
+  "title": "Causal Graph Workbench Analysis Contract",
+  "description": "Canonical shared request/result contract for the user-specified DAG backdoor-adjustment workbench.",
+  "$comment": "Contract version 0.2.0",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AnalysisRequest"
+    },
+    {
+      "$ref": "#/$defs/AnalysisResult"
+    }
+  ],
+  "$defs": {
+    "Severity": {
+      "type": "string",
+      "enum": [
+        "error",
+        "warning",
+        "info"
+      ]
+    },
+    "VariableType": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "binary",
+        "continuous",
+        "categorical"
+      ]
+    },
+    "PathCategory": {
+      "type": "string",
+      "enum": [
+        "directed_causal",
+        "backdoor",
+        "noncausal"
+      ]
+    },
+    "PathStatus": {
+      "type": "string",
+      "enum": [
+        "open",
+        "blocked"
+      ]
+    },
+    "RoleType": {
+      "type": "string",
+      "enum": [
+        "confounder",
+        "mediator",
+        "collider",
+        "descendant_of_treatment",
+        "ancestor_of_treatment",
+        "ancestor_of_outcome"
+      ]
+    },
+    "GraphNode": {
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "x",
+        "y"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "observed": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "GraphEdge": {
+      "type": "object",
+      "required": [
+        "id",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      }
+    },
+    "GraphSpec": {
+      "type": "object",
+      "required": [
+        "nodes",
+        "edges",
+        "treatmentId",
+        "outcomeId"
+      ],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GraphNode"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GraphEdge"
+          }
+        },
+        "treatmentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outcomeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "DataContext": {
+      "type": "object",
+      "properties": {
+        "hasData": {
+          "type": "boolean"
+        },
+        "treatmentType": {
+          "$ref": "#/$defs/VariableType"
+        },
+        "outcomeType": {
+          "$ref": "#/$defs/VariableType"
+        },
+        "datasetName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "highDimensional": {
+          "type": "boolean"
+        },
+        "columnBindings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "UploadedDataset": {
+      "type": "object",
+      "required": [
+        "content"
+      ],
+      "properties": {
+        "filename": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content": {
+          "type": "string"
+        },
+        "delimiter": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "Issue": {
+      "type": "object",
+      "required": [
+        "severity",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "nodeIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "edgeIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ValidationSummary": {
+      "type": "object",
+      "required": [
+        "canAnalyze",
+        "issues"
+      ],
+      "properties": {
+        "canAnalyze": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Issue"
+          }
+        }
+      }
+    },
+    "PathEvaluationStep": {
+      "type": "object",
+      "required": [
+        "nodeId",
+        "kind",
+        "conditionedOnNode",
+        "conditionedOnDescendant",
+        "descendantWitnesses",
+        "effect",
+        "explanation"
+      ],
+      "properties": {
+        "nodeId": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "collider",
+            "non_collider"
+          ]
+        },
+        "conditionedOnNode": {
+          "type": "boolean"
+        },
+        "conditionedOnDescendant": {
+          "type": "boolean"
+        },
+        "descendantWitnesses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "effect": {
+          "type": "string",
+          "enum": [
+            "opens_path",
+            "blocks_path",
+            "keeps_path_open"
+          ]
+        },
+        "explanation": {
+          "type": "string"
+        }
+      }
+    },
+    "PathEvaluation": {
+      "type": "object",
+      "required": [
+        "conditioningSet",
+        "status",
+        "isOpen",
+        "reason",
+        "blockedBy",
+        "openedBy",
+        "steps"
+      ],
+      "properties": {
+        "conditioningSet": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/PathStatus"
+        },
+        "isOpen": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "blockedBy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "openedBy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PathEvaluationStep"
+          }
+        }
+      }
+    },
+    "PathAnalysisItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "nodes",
+        "pathString",
+        "category",
+        "involvesCollider",
+        "colliders",
+        "defaultEvaluation",
+        "adjustmentEvaluations",
+        "explanation"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pathString": {
+          "type": "string"
+        },
+        "category": {
+          "$ref": "#/$defs/PathCategory"
+        },
+        "involvesCollider": {
+          "type": "boolean"
+        },
+        "colliders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "defaultEvaluation": {
+          "$ref": "#/$defs/PathEvaluation"
+        },
+        "adjustmentEvaluations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PathEvaluation"
+          }
+        },
+        "explanation": {
+          "type": "string"
+        }
+      }
+    },
+    "NodeRoleSummary": {
+      "type": "object",
+      "required": [
+        "nodeId",
+        "roles",
+        "summary",
+        "evidence"
+      ],
+      "properties": {
+        "nodeId": {
+          "type": "string"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RoleType"
+          }
+        },
+        "summary": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "AdjustmentSetSummary": {
+      "type": "object",
+      "required": [
+        "id",
+        "variables",
+        "isValid",
+        "isMinimal",
+        "isRecommended",
+        "practicalRating",
+        "explanation",
+        "blockedPathIds",
+        "openedPathIds",
+        "practicalConcerns"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "variables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "isValid": {
+          "type": "boolean"
+        },
+        "isMinimal": {
+          "type": "boolean"
+        },
+        "isRecommended": {
+          "type": "boolean"
+        },
+        "practicalRating": {
+          "type": "string",
+          "enum": [
+            "recommended",
+            "acceptable",
+            "avoid"
+          ]
+        },
+        "explanation": {
+          "type": "string"
+        },
+        "blockedPathIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "openedPathIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "practicalConcerns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ForbiddenVariable": {
+      "type": "object",
+      "required": [
+        "nodeId",
+        "reasons"
+      ],
+      "properties": {
+        "nodeId": {
+          "type": "string"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "AssumptionItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "description",
+        "category",
+        "level"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "identification",
+            "estimation",
+            "data"
+          ]
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "warning",
+            "info"
+          ]
+        }
+      }
+    },
+    "EstimatorRecommendation": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "family",
+        "summary",
+        "rationale",
+        "supportedWhen",
+        "formulaPreview",
+        "recommended",
+        "priority",
+        "caveats"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "family": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "rationale": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "supportedWhen": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "formulaPreview": {
+          "type": "string"
+        },
+        "recommended": {
+          "type": "boolean"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "caveats": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "CodeSnippet": {
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "language",
+        "estimatorId",
+        "content"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string",
+          "enum": [
+            "python",
+            "r"
+          ]
+        },
+        "estimatorId": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        }
+      }
+    },
+    "VariableBinding": {
+      "type": "object",
+      "required": [
+        "nodeId",
+        "columnName",
+        "matched",
+        "matchType"
+      ],
+      "properties": {
+        "nodeId": {
+          "type": "string"
+        },
+        "columnName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matched": {
+          "type": "boolean"
+        },
+        "matchType": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "normalized",
+            "provided",
+            "unmatched"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ColumnProfile": {
+      "type": "object",
+      "required": [
+        "columnName",
+        "inferredType",
+        "nonMissingCount",
+        "missingCount",
+        "missingRate",
+        "uniqueCount",
+        "exampleValues",
+        "boundNodeIds"
+      ],
+      "properties": {
+        "columnName": {
+          "type": "string"
+        },
+        "inferredType": {
+          "$ref": "#/$defs/VariableType"
+        },
+        "nonMissingCount": {
+          "type": "integer"
+        },
+        "missingCount": {
+          "type": "integer"
+        },
+        "missingRate": {
+          "type": "number"
+        },
+        "uniqueCount": {
+          "type": "integer"
+        },
+        "exampleValues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "boundNodeIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "MissingnessItem": {
+      "type": "object",
+      "required": [
+        "columnName",
+        "missingCount",
+        "missingRate"
+      ],
+      "properties": {
+        "columnName": {
+          "type": "string"
+        },
+        "missingCount": {
+          "type": "integer"
+        },
+        "missingRate": {
+          "type": "number"
+        }
+      }
+    },
+    "BalanceMetric": {
+      "type": "object",
+      "required": [
+        "columnName",
+        "treatedValue",
+        "controlValue"
+      ],
+      "properties": {
+        "columnName": {
+          "type": "string"
+        },
+        "treatedValue": {
+          "type": "string"
+        },
+        "controlValue": {
+          "type": "string"
+        },
+        "absoluteDifference": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "standardizedDifference": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "TreatmentBalanceSummary": {
+      "type": "object",
+      "required": [
+        "available",
+        "treatmentType",
+        "metrics",
+        "note"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "treatmentColumn": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "treatmentType": {
+          "$ref": "#/$defs/VariableType"
+        },
+        "treatedCount": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "controlCount": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "treatedRate": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BalanceMetric"
+          }
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "OverlapMetric": {
+      "type": "object",
+      "required": [
+        "columnName",
+        "note"
+      ],
+      "properties": {
+        "columnName": {
+          "type": "string"
+        },
+        "overlapScore": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "treatedRange": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "controlRange": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "OverlapDiagnostics": {
+      "type": "object",
+      "required": [
+        "available",
+        "note",
+        "metrics",
+        "warnings"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string"
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OverlapMetric"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "DataDiagnostics": {
+      "type": "object",
+      "required": [
+        "hasData",
+        "rowCount",
+        "columnCount",
+        "columnProfiles",
+        "variableBindings",
+        "missingness",
+        "warnings"
+      ],
+      "properties": {
+        "hasData": {
+          "type": "boolean"
+        },
+        "datasetName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rowCount": {
+          "type": "integer"
+        },
+        "columnCount": {
+          "type": "integer"
+        },
+        "columnProfiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ColumnProfile"
+          }
+        },
+        "variableBindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/VariableBinding"
+          }
+        },
+        "missingness": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MissingnessItem"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "treatmentBalance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TreatmentBalanceSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "overlapDiagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OverlapDiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "GraphTemplate": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "description",
+        "graph"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "graph": {
+          "$ref": "#/$defs/GraphSpec"
+        }
+      }
+    },
+    "AnalysisRequest": {
+      "type": "object",
+      "required": [
+        "graph"
+      ],
+      "properties": {
+        "graph": {
+          "$ref": "#/$defs/GraphSpec"
+        },
+        "dataContext": {
+          "$ref": "#/$defs/DataContext"
+        },
+        "dataset": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UploadedDataset"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "AnalysisResult": {
+      "type": "object",
+      "required": [
+        "validation",
+        "graphStats",
+        "paths",
+        "nodeRoles",
+        "adjustmentSets",
+        "recommendedAdjustmentSet",
+        "forbiddenVariables",
+        "assumptions",
+        "estimatorRecommendations",
+        "codeSnippets"
+      ],
+      "properties": {
+        "validation": {
+          "$ref": "#/$defs/ValidationSummary"
+        },
+        "graphStats": {
+          "type": "object",
+          "required": [
+            "nodeCount",
+            "edgeCount",
+            "openBackdoorPathCount",
+            "directedPathCount"
+          ],
+          "properties": {
+            "nodeCount": {
+              "type": "integer"
+            },
+            "edgeCount": {
+              "type": "integer"
+            },
+            "openBackdoorPathCount": {
+              "type": "integer"
+            },
+            "directedPathCount": {
+              "type": "integer"
+            }
+          }
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PathAnalysisItem"
+          }
+        },
+        "nodeRoles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodeRoleSummary"
+          }
+        },
+        "adjustmentSets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AdjustmentSetSummary"
+          }
+        },
+        "recommendedAdjustmentSet": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "forbiddenVariables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ForbiddenVariable"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssumptionItem"
+          }
+        },
+        "estimatorRecommendations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EstimatorRecommendation"
+          }
+        },
+        "codeSnippets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CodeSnippet"
+          }
+        },
+        "dataDiagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataDiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

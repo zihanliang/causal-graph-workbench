@@ -1,0 +1,34 @@
+{
+  "version": "0.2.0",
+  "savedAt": "2026-03-29T00:00:00.000Z",
+  "graph": {
+    "nodes": [
+      { "id": "Z", "label": "Z", "x": 120, "y": 80 },
+      { "id": "X", "label": "X", "x": 320, "y": 60 },
+      { "id": "Y", "label": "Y", "x": 520, "y": 220 }
+    ],
+    "edges": [
+      { "id": "Z->X", "source": "Z", "target": "X" },
+      { "id": "Z->Y", "source": "Z", "target": "Y" },
+      { "id": "X->Y", "source": "X", "target": "Y" }
+    ],
+    "treatmentId": "X",
+    "outcomeId": "Y"
+  },
+  "dataContext": {
+    "hasData": true,
+    "treatmentType": "unknown",
+    "outcomeType": "unknown",
+    "datasetName": "simple-confounding-study.csv",
+    "highDimensional": false,
+    "columnBindings": {
+      "X": "treatment_status",
+      "Y": "outcome_score",
+      "Z": "baseline_risk"
+    }
+  },
+  "uploadedDataset": {
+    "filename": "simple-confounding-study.csv",
+    "content": "treatment_status,outcome_score,baseline_risk,site_code\n1,16.4,0.82,A\n1,15.1,0.77,A\n1,14.7,0.74,B\n1,13.8,0.69,B\n1,12.4,0.62,C\n1,11.3,0.57,C\n0,11.1,0.61,A\n0,10.2,0.55,A\n0,9.8,0.51,B\n0,9.1,0.46,B\n0,8.7,0.42,C\n0,8.3,,C\n"
+  }
+}
