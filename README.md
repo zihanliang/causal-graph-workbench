@@ -119,10 +119,13 @@ VITE_BASE_PATH=/dag-workbench/
 VITE_API_BASE_URL=https://your-render-service.onrender.com/api
 ```
 
+`VITE_API_BASE_URL` may also be set to the bare Render service origin such as
+`https://your-render-service.onrender.com`; the frontend normalizes that to `/api`.
+
 Backend environment:
 
 ```bash
-CAUSAL_WORKBENCH_ALLOWED_ORIGINS=https://www.zihanliang.com
+CAUSAL_WORKBENCH_ALLOWED_ORIGINS=https://www.zihanliang.com,https://your-frontend-origin.example
 ```
 
 If these variables are unset, local development keeps using the current defaults:
@@ -130,6 +133,10 @@ If these variables are unset, local development keeps using the current defaults
 - frontend assets resolve from `/`
 - frontend API calls use `/api`
 - backend CORS allows the local Vite origins
+
+For deployed environments, `CAUSAL_WORKBENCH_ALLOWED_ORIGINS` must include the exact browser origin that serves the
+frontend, including the correct scheme and host. If the frontend moves between GitHub Pages, a custom domain, or a
+preview domain, update the comma-separated list and redeploy the backend.
 
 ## Example Usage
 

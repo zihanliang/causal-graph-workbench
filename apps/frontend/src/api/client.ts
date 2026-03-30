@@ -3,12 +3,15 @@ import type { AnalysisRequest, AnalysisResult, GraphTemplate } from "@causal-wor
 import { apiUrl } from "../lib/urls";
 
 async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+
+  if (init?.body !== undefined && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
   const response = await fetch(input, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
     ...init,
+    headers,
   });
 
   if (!response.ok) {

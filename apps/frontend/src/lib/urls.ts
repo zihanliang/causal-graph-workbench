@@ -4,13 +4,31 @@ function normalizeBasePath(basePath: string | undefined): string {
   return withLeadingSlash.endsWith("/") ? withLeadingSlash : `${withLeadingSlash}/`;
 }
 
+function normalizeApiBase(apiBaseUrl: string | undefined): string {
+  const trimmed = (apiBaseUrl ?? "/api").trim();
+
+  if (!trimmed) {
+    return "/api";
+  }
+
+  try {
+    const absoluteUrl = new URL(trimmed);
+    const normalizedPath = absoluteUrl.pathname.replace(/\/+$/, "");
+
+    absoluteUrl.pathname = !normalizedPath || normalizedPath === "/" ? "/api" : normalizedPath;
+    return absoluteUrl.toString().replace(/\/+$/, "");
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
+}
+
 export function joinBasePath(basePath: string | undefined, relativePath: string): string {
   const normalizedPath = relativePath.replace(/^\/+/, "");
   return `${normalizeBasePath(basePath)}${normalizedPath}`;
 }
 
 export function joinApiBase(apiBaseUrl: string | undefined, endpoint: string): string {
-  const normalizedBase = (apiBaseUrl ?? "/api").trim().replace(/\/+$/, "");
+  const normalizedBase = normalizeApiBase(apiBaseUrl);
   const normalizedEndpoint = endpoint.replace(/^\/+/, "");
   return `${normalizedBase}/${normalizedEndpoint}`;
 }

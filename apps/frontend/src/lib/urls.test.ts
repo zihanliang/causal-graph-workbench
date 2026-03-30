@@ -19,6 +19,12 @@ describe("deployment URL helpers", () => {
     expect(joinApiBase(undefined, "analyze")).toBe("/api/analyze");
   });
 
+  test("accepts a Render service origin and appends the fixed /api prefix", () => {
+    expect(joinApiBase("https://dag-workbench-api.onrender.com", "/templates")).toBe(
+      "https://dag-workbench-api.onrender.com/api/templates",
+    );
+  });
+
   test("supports an absolute Render API base URL", () => {
     expect(joinApiBase("https://dag-workbench-api.onrender.com/api/", "/templates")).toBe(
       "https://dag-workbench-api.onrender.com/api/templates",
