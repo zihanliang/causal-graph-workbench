@@ -230,9 +230,3 @@ This workbench is designed to stay explicit about its scope and assumptions.
 - It does **not** confirm that the DAG is true.
 - It does **not** guarantee that a recommended set yields unbiased estimates in the real world.
 - Data diagnostics are descriptive and cautious; they do not prove ignorability, positivity, or MNAR.
-
-## Documentation
-
-- Original requirements: `说明.md`
-- Implementation tracking: `docs/requirement-matrix.md`
-- Current requirement-by-requirement audit: `docs/final-audit.md`
