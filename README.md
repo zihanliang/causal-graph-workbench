@@ -110,17 +110,17 @@ npm run dev:backend
 
 ## Deployment Configuration
 
-For a GitHub Pages frontend served from `/causal-graph-workbench` and a Render backend:
+For a GitHub Pages frontend served from `/causal-graph-workbench` and a Render backend at `https://causal-analysis-workbench.onrender.com`:
 
 Frontend build environment:
 
 ```bash
 VITE_BASE_PATH=/causal-graph-workbench/
-VITE_API_BASE_URL=https://your-render-service.onrender.com/api
+VITE_API_BASE_URL=https://causal-analysis-workbench.onrender.com/api
 ```
 
 `VITE_API_BASE_URL` may also be set to the bare Render service origin such as
-`https://your-render-service.onrender.com`; the frontend normalizes that to `/api`.
+`https://causal-analysis-workbench.onrender.com`; the frontend normalizes that to `/api`.
 
 Backend environment:
 

@@ -20,14 +20,14 @@ describe("deployment URL helpers", () => {
   });
 
   test("accepts a Render service origin and appends the fixed /api prefix", () => {
-    expect(joinApiBase("https://causal-graph-workbench-api.onrender.com", "/templates")).toBe(
-      "https://causal-graph-workbench-api.onrender.com/api/templates",
+    expect(joinApiBase("https://causal-analysis-workbench.onrender.com", "/templates")).toBe(
+      "https://causal-analysis-workbench.onrender.com/api/templates",
     );
   });
 
   test("supports an absolute Render API base URL", () => {
-    expect(joinApiBase("https://causal-graph-workbench-api.onrender.com/api/", "/templates")).toBe(
-      "https://causal-graph-workbench-api.onrender.com/api/templates",
+    expect(joinApiBase("https://causal-analysis-workbench.onrender.com/api/", "/templates")).toBe(
+      "https://causal-analysis-workbench.onrender.com/api/templates",
     );
   });
 });
