@@ -131,7 +131,7 @@ export function validateGraph(graph: GraphSpec): ValidationSummary {
           "warning",
           "timing_conflict",
           `These arrows point backwards in time, given when you said each variable is fixed: ${backwards
-            .map((edge) => `${edge.source} -> ${edge.target}`)
+            .map((edge) => `${edge.source} → ${edge.target}`)
             .join(", ")}.`,
           { edgeIds: backwards.map((edge) => edge.id) },
         ),

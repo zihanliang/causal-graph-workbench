@@ -289,6 +289,9 @@ describe("export helpers", () => {
     expect(markdown).toContain("## What This Result Depends On");
     expect(markdown).toContain("These checks cannot see something unmeasured");
     expect(markdown.toLowerCase()).not.toMatch(/\b(passed|confirmed|verified|validated)\b/);
+    expect(markdown).toContain("- U1 → X");
+    expect(markdown).toContain("- X → X (exact)");
+    expect(markdown).not.toMatch(/ (->|<-) /);
   });
 
   test("an empty recommendation is stated as no adjustment needed", () => {

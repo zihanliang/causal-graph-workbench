@@ -168,17 +168,27 @@ describe("path analysis", () => {
   test("enumerates and classifies relevant paths", () => {
     const result = run(graph("Z -> X, Z -> Y, X -> M, M -> Y, X -> Y"));
     const byString = new Map(result.paths.map((path) => [path.pathString, path]));
-    expect([...byString.keys()].sort()).toEqual(["X -> M -> Y", "X -> Y", "X <- Z -> Y"]);
-    expect(byString.get("X <- Z -> Y")!.category).toBe("backdoor");
-    expect(byString.get("X -> M -> Y")!.category).toBe("directed_causal");
-    expect(byString.get("X -> Y")!.category).toBe("directed_causal");
+    expect([...byString.keys()].sort()).toEqual(["X ← Z → Y", "X → M → Y", "X → Y"]);
+    expect(byString.get("X ← Z → Y")!.category).toBe("backdoor");
+    expect(byString.get("X → M → Y")!.category).toBe("directed_causal");
+    expect(byString.get("X → Y")!.category).toBe("directed_causal");
+  });
+
+  test("no sentence on the page uses a hyphen arrow, which a line break can split", () => {
+    const spec = graph("Z -> X, Z -> Y, X -> M, M -> Y, M -> D, X -> C, U -> C, U -> Y, W -> Y, X -> Y");
+    spec.nodes = spec.nodes.map((node) => (node.id === "C" ? { ...node, timing: "before" } : node));
+    const result = run(spec);
+    expect(result.validation.issues.some((issue) => issue.code === "timing_conflict")).toBe(true);
+    expect(result.paths.length).toBeGreaterThan(0);
+    expect(result.audit!.assumptions.length).toBeGreaterThan(0);
+    expect(JSON.stringify({ ...result, codeSnippets: [], reproduction: null })).not.toMatch(/ (->|<-) /);
   });
 
   test("a collider path is blocked until the collider or a descendant is conditioned on", () => {
     const dag = Dag.fromSpec(graph("A -> X, A -> C, B -> C, C -> D, B -> Y"));
     const { paths } = enumeratePaths(dag, "X", "Y");
     const items = materializePaths(dag, paths, [["C"], ["D"]]);
-    const path = items.find((item) => item.pathString === "X <- A -> C <- B -> Y")!;
+    const path = items.find((item) => item.pathString === "X ← A → C ← B → Y")!;
 
     expect(path.category).toBe("backdoor");
     expect(path.involvesCollider).toBe(true);

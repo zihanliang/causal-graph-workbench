@@ -113,7 +113,7 @@ describe("graph-only audit", () => {
     const entry = result.audit!.assumptions.find((item) => item.id === "add:W:X")!;
     expect(result.baselineSet).toEqual(["Z"]);
     expect(entry.statement).toBe("You assume W has no direct effect on X.");
-    expect(entry.consequence).toBe("If it does, this backdoor path stays open: X <- W -> Y.");
+    expect(entry.consequence).toBe("If it does, this backdoor path stays open: X ← W → Y.");
     expect(entry.repair).toEqual(["W", "Z"]);
     expect(entry.addedToSet).toEqual(["W"]);
     expect(entry.dataCheckNote).toMatch(/Add data/);
@@ -148,7 +148,7 @@ describe("graph-only audit", () => {
 
   test("an arrow drawn backwards in time is flagged", () => {
     const result = analyze({ graph: graph("X -> Z, Z -> Y, X -> Y", "X", "Y", { Z: { timing: "before" } }) });
-    expect(result.validation.issues.find((issue) => issue.code === "timing_conflict")!.message).toContain("X -> Z");
+    expect(result.validation.issues.find((issue) => issue.code === "timing_conflict")!.message).toContain("X → Z");
   });
 
   test("the outcome causing treatment is never considered", () => {
