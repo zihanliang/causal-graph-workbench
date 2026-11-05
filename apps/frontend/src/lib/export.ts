@@ -56,20 +56,18 @@ export function openAnalysisPdf(graph: GraphSpec, analysis: AnalysisResult | nul
   const frame = document.createElement("iframe");
   frame.id = "printable-report-frame";
   frame.setAttribute("aria-hidden", "true");
+  // Off the screen at the size of a page, rather than 0 by 0: some browsers lay out what they print
+  // from the frame's own width, and at 0 the report collapses into a column one letter wide.
   frame.style.position = "fixed";
-  frame.style.right = "0";
-  frame.style.bottom = "0";
-  frame.style.width = "0";
-  frame.style.height = "0";
+  frame.style.left = "-10000px";
+  frame.style.top = "0";
+  frame.style.width = "794px";
+  frame.style.height = "1123px";
   frame.style.border = "0";
-  frame.style.opacity = "0";
   frame.style.pointerEvents = "none";
+  frame.tabIndex = -1;
 
-  let fallbackCleanupTimer = 0;
-  const cleanup = () => {
-    window.clearTimeout(fallbackCleanupTimer);
-    frame.remove();
-  };
+  const cleanup = () => frame.remove();
 
   const printReport = () => {
     const printWindow = frame.contentWindow;
@@ -82,8 +80,6 @@ export function openAnalysisPdf(graph: GraphSpec, analysis: AnalysisResult | nul
     printWindow.focus();
     printWindow.print();
   };
-
-  fallbackCleanupTimer = window.setTimeout(cleanup, 60_000);
 
   frame.addEventListener(
     "load",
@@ -113,9 +109,14 @@ export async function readProjectSnapshot(file: File): Promise<ProjectSnapshot> 
 }
 
 export function parseProjectSnapshotText(text: string): ProjectSnapshot {
-  const parsed = JSON.parse(text) as unknown;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("That file could not be opened, because it is not a project saved from this app.");
+  }
   if (!isProjectSnapshot(parsed)) {
-    throw new Error("The selected JSON file is not a valid Causal Graph Workbench project snapshot.");
+    throw new Error("That file could not be opened, because it is not a project saved from this app.");
   }
   return parsed;
 }
@@ -149,10 +150,11 @@ export function buildMarkdownReport(graph: GraphSpec, analysis: AnalysisResult |
     return lines.join("\n");
   }
 
+  const problems = analysis.validation.issues.filter((issue) => issue.severity !== "info");
   lines.push(
     "",
-    "## Validation",
-    ...analysis.validation.issues.map((issue) => `- [${issue.severity}] ${issue.code}: ${issue.message}`),
+    "## Checks on the Graph",
+    ...(problems.length ? problems.map((issue) => `- ${issue.severity === "error" ? "Error" : "Warning"}: ${issue.message}`) : ["- No errors or warnings."]),
     "",
     "## Structural Summary",
     `- Directed paths: ${analysis.graphStats.directedPathCount}`,
@@ -368,8 +370,8 @@ export function buildPrintableReportHtml(graph: GraphSpec, analysis: AnalysisRes
   sections.push(
     `<section class="hero">` +
       `<p class="source">Causal Graph Workbench</p>` +
-      `<h1>Printable Analysis Report</h1>` +
-      `<p class="lede">Rule-based structural reasoning for the user-provided DAG. This report is designed for browser print-to-PDF.</p>` +
+      `<h1>Causal analysis report</h1>` +
+      `<p class="lede">The effect of ${escapeHtml(graph.treatmentId ?? "treatment")} on ${escapeHtml(graph.outcomeId ?? "outcome")}, given the causal graph below.</p>` +
       `<div class="notice">The tool does not verify the DAG is true. It only reasons conditionally on the DAG provided by the user.</div>` +
     `</section>`,
   );
@@ -384,13 +386,19 @@ export function buildPrintableReportHtml(graph: GraphSpec, analysis: AnalysisRes
     `</div></section>`,
   );
 
+  if (graph.nodes.length) {
+    // Drawn without its XML header, so that it can sit inside the page.
+    const figure = buildGraphSvg(graph, analysis).replace(/^<\?xml[^>]*\?>/, "");
+    sections.push(`<section><h2>The graph</h2><figure class="graph">${figure}</figure></section>`);
+  }
+
   sections.push(
-    `<section><h2>Edge List</h2>${graph.edges.length ? `<ul>${graph.edges.map((edge) => `<li>${escapeHtml(edge.source)} → ${escapeHtml(edge.target)}</li>`).join("")}</ul>` : `<p>No edges defined.</p>`}</section>`,
+    `<section><h2>Edge List</h2>${graph.edges.length ? `<ul class="edges">${graph.edges.map((edge) => `<li>${escapeHtml(edge.source)} → ${escapeHtml(edge.target)}</li>`).join("")}</ul>` : `<p>No edges defined.</p>`}</section>`,
   );
 
   if (analysis) {
     sections.push(
-      `<section><h2>Validation</h2>${analysis.validation.issues.length ? `<ul>${analysis.validation.issues.map((issue) => `<li><strong>${escapeHtml(issue.severity)}</strong> ${escapeHtml(issue.code)}: ${escapeHtml(issue.message)}</li>`).join("")}</ul>` : `<p>No validation issues reported.</p>`}</section>`,
+      `<section><h2>Checks on the graph</h2>${analysis.validation.issues.filter((issue) => issue.severity !== "info").length ? `<ul>${analysis.validation.issues.filter((issue) => issue.severity !== "info").map((issue) => `<li><strong>${issue.severity === "error" ? "Error" : "Warning"}:</strong> ${escapeHtml(issue.message)}</li>`).join("")}</ul>` : `<p>No errors or warnings.</p>`}</section>`,
     );
     const resultLines = buildResultLines(analysis)
       .filter(Boolean)
@@ -522,19 +530,20 @@ export function buildPrintableReportHtml(graph: GraphSpec, analysis: AnalysisRes
       code, pre { font-family: "IBM Plex Mono", Menlo, Consolas, monospace; font-size: 12px; }
       pre { overflow: auto; padding: 12px; background: #f4f6f8; border-radius: 6px; }
       .badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 4px; background: #ebedee; font-size: 12px; }
+      .graph { margin: 0; }
+      .graph svg { display: block; max-width: 100%; height: auto; }
+      .edges { columns: 2; }
+      @page { margin: 18mm 16mm; }
       @media print {
         main { max-width: none; padding: 0; }
-        section { break-inside: avoid; }
+        h2, h3 { break-after: avoid; }
+        figure, .row, li, .card, pre { break-inside: avoid; }
+        p { orphans: 3; widows: 3; }
       }
     </style>
   </head>
   <body>
     <main>${sections.join("")}</main>
-    <script>
-      window.addEventListener("load", () => {
-        window.setTimeout(() => window.print(), 120);
-      });
-    </script>
   </body>
 </html>`;
 }

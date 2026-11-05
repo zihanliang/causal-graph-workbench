@@ -2,8 +2,9 @@ import type { GraphEdge, GraphNode, GraphSpec } from "@causal-graph-workbench/sh
 
 import { layoutGraph } from "./layout";
 
-const EDGE_PATTERN = /^([A-Za-z_][A-Za-z0-9_]*)\s*->\s*([A-Za-z_][A-Za-z0-9_]*)$/;
-const NODE_PATTERN = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*\[(unobserved|latent)\])?$/;
+const NAME = "[\\p{L}_][\\p{L}\\p{N}_]*";
+const EDGE_PATTERN = new RegExp(`^(${NAME})\\s*->\\s*(${NAME})$`, "u");
+const NODE_PATTERN = new RegExp(`^(${NAME})(?:\\s*\\[(unobserved|latent)\\])?$`, "u");
 
 export interface ParsedEdgeList {
   graph: GraphSpec;
@@ -77,8 +78,8 @@ export function parseEdgeListText(text: string, existing?: Partial<GraphSpec>): 
 }
 
 export function sanitizeVariableName(raw: string): string {
-  const trimmed = raw.trim().replace(/\s+/g, "_").replace(/[^A-Za-z0-9_]/g, "");
-  const normalized = /^[A-Za-z_]/.test(trimmed) ? trimmed : `V_${trimmed || "node"}`;
+  const trimmed = raw.trim().replace(/\s+/g, "_").replace(/[^\p{L}\p{N}_]/gu, "");
+  const normalized = /^[\p{L}_]/u.test(trimmed) ? trimmed : `V_${trimmed || "node"}`;
   return normalized;
 }
 

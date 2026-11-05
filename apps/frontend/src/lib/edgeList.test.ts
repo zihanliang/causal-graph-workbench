@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { graphToEdgeListText, parseEdgeListText } from "./edgeList";
+import { graphToEdgeListText, parseEdgeListText, sanitizeVariableName } from "./edgeList";
 
 describe("edge list parser", () => {
   test("parses edge list text into a graph", () => {
@@ -44,5 +44,19 @@ describe("edge list parser", () => {
 
   test("still rejects anything else", () => {
     expect(() => parseEdgeListText("U [secret]")).toThrow(/Unable to parse/);
+  });
+});
+
+describe("names in any script", () => {
+  test("Chinese names survive typing, text and the arrow syntax", () => {
+    expect(sanitizeVariableName("教育 年限")).toBe("教育_年限");
+    const { graph } = parseEdgeListText("教育 -> 收入\n年龄 [unobserved]");
+    expect(graph.nodes.map((node) => node.id).sort()).toEqual(["年龄", "收入", "教育"].sort());
+    expect(graph.nodes.find((node) => node.id === "年龄")!.observed).toBe(false);
+  });
+
+  test("a name still cannot start with a number, and symbols still go", () => {
+    expect(sanitizeVariableName("9lives")).toBe("V_9lives");
+    expect(sanitizeVariableName("a-b/c")).toBe("abc");
   });
 });

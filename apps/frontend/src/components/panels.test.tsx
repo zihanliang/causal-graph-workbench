@@ -79,6 +79,26 @@ describe("the answer at the top of the result", () => {
     expect(screen.queryByText("No adjustment needed")).toBeNull();
   });
 
+  test("a long list of variables to avoid does not take over the page", () => {
+    const edges: [string, string][] = [["X", "Y"]];
+    for (let index = 0; index < 12; index += 1) {
+      edges.push(["X", `D${index}`], ["Y", `D${index}`]);
+    }
+    showResult({ graph: graph(edges) });
+    const line = screen.getByText(/Do not adjust for|This graph has no open backdoor/).textContent ?? "";
+    expect(line.length).toBeLessThan(160);
+  });
+
+  test("a large adjustment set is counted in the title and listed underneath", () => {
+    const edges: [string, string][] = [["X", "Y"]];
+    for (let index = 0; index < 9; index += 1) {
+      edges.push([`C${index}`, "X"], [`C${index}`, "Y"]);
+    }
+    showResult({ graph: graph(edges) });
+    expect(headline()).toBe("Adjust for these 9 variables");
+    expect(screen.getByText(/^C0, C1, C2/)).toBeTruthy();
+  });
+
   test("a graph that cannot be analysed says so and leads back to it", () => {
     const spec = graph([["X", "Y"]]);
     spec.treatmentId = null;
@@ -291,7 +311,7 @@ describe("something unmeasured", () => {
     const { robustness } = analysis.sensitivity!;
     expect(screen.getByText(new RegExp(`it would have to explain ${(robustness!.value * 100).toFixed(1)}%`))).toBeTruthy();
     expect(screen.getByText(new RegExp(`Something as strong as ${robustness!.benchmarks[0].variable}`))).toBeTruthy();
-    expect(screen.getByRole("img", { name: /how strong something unmeasured would have to be/ })).toBeTruthy();
+    expect(screen.getByRole("group", { name: /how strong something unmeasured would have to be/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /E-value/ })).toBeTruthy();
   });
 
@@ -316,7 +336,46 @@ describe("something unmeasured", () => {
     showResult({ graph: graph(drawnEdges) });
     expect(screen.getByText(/What these checks cannot see/)).toBeTruthy();
     expect(screen.getByText(/to see how strong it would have to be/)).toBeTruthy();
-    expect(screen.queryByRole("img", { name: /how strong/ })).toBeNull();
+    expect(screen.queryByRole("group", { name: /how strong/ })).toBeNull();
+  });
+});
+
+describe("a file that does not fit", () => {
+  test("no matching columns is said plainly, rather than blaming the graph", () => {
+    showResult({ graph: graph(drawnEdges), dataset: { filename: "x.csv", content: "a,b\n1,2\n3,4\n" } });
+    expect(headline()).toBe("This file does not match your graph");
+    fireEvent.click(screen.getByRole("button", { name: "Check the file and its columns" }));
+    expect(useWorkbenchStore.getState().step).toBe("data");
+  });
+
+  test("an empty file gets the same answer", () => {
+    showResult({ graph: graph(drawnEdges), dataset: { filename: "x.csv", content: "" } });
+    expect(headline()).toBe("This file does not match your graph");
+  });
+
+  test("a confounder missing from the file is named as the reason", () => {
+    const spec = graph([["Z", "X"], ["Z", "Y"], ["X", "Y"]]);
+    showResult({ graph: spec, dataset: { filename: "x.csv", content: "X,Y\n1,2\n0,1\n1,3\n0,2\n" } });
+    expect(headline()).toBe("No measured variables can remove the bias");
+    expect(screen.getByText(/Z has no column in this file/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Match columns" })).toBeTruthy();
+  });
+
+  test("a column that could not be used leads to what the file check found", () => {
+    const rows = Array.from({ length: 50 }, (_, index) => `${index % 2},"${index},5",${index}`);
+    showResult({ graph: graph([["Z", "X"], ["Z", "Y"], ["X", "Y"]]), dataset: { filename: "x.csv", content: ["X,Y,Z", ...rows].join("\n") } });
+    expect(screen.getByText(/Y needs to be numeric/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "See what the file check found" }));
+    expect(useWorkbenchStore.getState().step).toBe("data");
+  });
+
+  test("cautions about an estimate are in view without asking", () => {
+    const rows = Array.from({ length: 300 }, (_, index) => {
+      const z = Math.sin(index * 1.3);
+      return `${z > 0 ? 1 : 0},${(z + Math.sin(index * 4.7)).toFixed(3)},${z.toFixed(3)}`;
+    });
+    showResult({ graph: graph([["Z", "X"], ["Z", "Y"], ["X", "Y"]]), dataset: { filename: "x.csv", content: ["X,Y,Z", ...rows].join("\n") } });
+    expect(screen.getByRole("button", { name: /Cautions about this estimate/ }).getAttribute("aria-expanded")).toBe("true");
   });
 });
 
@@ -409,6 +468,31 @@ describe("the graph step", () => {
         expect(Math.abs(node.x - other.x) >= 160 || Math.abs(node.y - other.y) >= 80).toBe(true);
       }),
     );
+  });
+
+  test("a new name is confirmed by Enter, and an empty one goes back to the real name", () => {
+    render(<GraphStep analysis={null} />);
+    const box = screen.getByLabelText<HTMLInputElement>("Name of Z");
+    box.focus();
+    fireEvent.change(box, { target: { value: "" } });
+    fireEvent.blur(box);
+    expect(screen.getByLabelText<HTMLInputElement>("Name of Z").value).toBe("Z");
+
+    const again = screen.getByLabelText<HTMLInputElement>("Name of Z");
+    again.focus();
+    fireEvent.change(again, { target: { value: "region" } });
+    fireEvent.keyDown(again, { key: "Enter" });
+    expect(useWorkbenchStore.getState().graph.nodes.map((node) => node.id)).toContain("region");
+  });
+
+  test("Escape abandons a new name", () => {
+    render(<GraphStep analysis={null} />);
+    const box = screen.getByLabelText<HTMLInputElement>("Name of Z");
+    box.focus();
+    fireEvent.change(box, { target: { value: "other" } });
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(useWorkbenchStore.getState().graph.nodes.map((node) => node.id)).toContain("Z");
+    expect(screen.getByLabelText<HTMLInputElement>("Name of Z").value).toBe("Z");
   });
 
   test("variables and arrows can be added from the panel", () => {

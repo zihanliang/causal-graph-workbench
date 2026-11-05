@@ -65,6 +65,7 @@ export function buildReproducibleScript(graph: GraphSpec, analysis: AnalysisResu
 
   const settings = [
     `DATA_FILE = ${python(reproduction.filename)}`,
+    `DELIMITER = ${python(reproduction.delimiter)}`,
     `ARROWS = ${python(graph.edges.map((edge) => [edge.source, edge.target]))}`,
     `NOT_MEASURED = ${python(notMeasured)}`,
     `TREATMENT = ${python(graph.treatmentId)}`,
@@ -110,19 +111,19 @@ const HEADER = (filename: string) =>
 Recomputes every number in this analysis from ${filename}, and checks them against what the app showed.
 
 Put this next to the data file and run:  python reproduce_analysis.py
-It needs numpy, pandas, scipy and statsmodels. With networkx it also checks the adjustment set against the graph.
+It needs numpy, scipy and statsmodels. With networkx it also checks the adjustment set against the graph.
 
 Everything specific to this analysis is in the settings below. The rest is the method, written out in full so
 it can be read and changed. The graph is an assumption: this script reproduces what follows from it, and cannot
 show that it is true.
 """
 
+import csv
 import re
 import sys
 from functools import lru_cache
 
 import numpy as np
-import pandas as pd
 import statsmodels.api as sm
 from scipy import stats
 
@@ -142,14 +143,29 @@ PROPENSITY_CEILING = ${PROPENSITY_CEILING}
 # Reading the file the way the app does
 # ---------------------------------------------------------------------------
 
-MISSING = {"", "na", "n/a", "#n/a", "#n/a n/a", "#na", "<na>", "nan", "-nan", "-1.#ind", "-1.#qnan", "1.#ind", "1.#qnan", "null", "none", "missing"}
+MISSING = {"", "na", "n/a", "#n/a", "#n/a n/a", "#na", "<na>", "nan", "-nan", "-1.#ind", "-1.#qnan", "1.#ind", "1.#qnan", "null", "none", "missing", "."}
 TRUE_WORDS = {"1", "true", "yes", "y", "treated"}
 FALSE_WORDS = {"0", "false", "no", "n", "control"}
 NUMBER = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")
 
-table = pd.read_csv(DATA_FILE, dtype=str, keep_default_na=False, sep=None, engine="python", encoding="utf-8-sig")
-table.columns = [column.strip() for column in table.columns]
-table = table.apply(lambda column: column.str.strip())
+
+
+def read_table():
+    """Blank lines are skipped. A short row is padded, a long one cut, and a repeated header numbered, as in the app."""
+    with open(DATA_FILE, encoding="utf-8-sig", newline="") as file:
+        rows = [row for row in csv.reader(file, delimiter=DELIMITER) if any(cell.strip() for cell in row)]
+    headers, seen = [], set()
+    for index, raw in enumerate(rows[0]):
+        base = raw.strip() or f"column_{index + 1}"
+        name, suffix = base, 2
+        while name in seen:
+            name, suffix = f"{base}_{suffix}", suffix + 1
+        seen.add(name)
+        headers.append(name)
+    return {header: [(row[i].strip() if i < len(row) else "") for row in rows[1:]] for i, header in enumerate(headers)}
+
+
+table = read_table()
 
 
 def is_missing(value):
@@ -186,7 +202,7 @@ def terms_of(variable):
     if kind == "binary":
         return [read_two_values(column)]
     if kind == "categorical":
-        values = table[column].to_numpy()
+        values = table[column]
         levels = sorted({v for v in values if not is_missing(v)})
         return [np.array([np.nan if is_missing(v) else float(v == level) for v in values]) for level in levels[1:]]
     return [read_number(column)]
@@ -569,7 +585,10 @@ def compare(label, value, expected):
 
 def main():
     is_odds_ratio = TYPES[TREATMENT] != "binary" and TYPES[OUTCOME] == "binary"
-    shown = (lambda value: f"{np.exp(value):.3f}") if is_odds_ratio else (lambda value: f"{value:.3f}")
+    def shown(value):
+        value = np.exp(value) if is_odds_ratio else value
+        return f"{value:.3f}" if value == 0 or 0.001 <= abs(value) < 1e7 else f"{value:.3g}"
+
 
     print("The graph")
     check_graph()

@@ -116,7 +116,7 @@ describe("graph-only audit", () => {
     expect(entry.consequence).toBe("If it does, this backdoor path stays open: X <- W -> Y.");
     expect(entry.repair).toEqual(["W", "Z"]);
     expect(entry.addedToSet).toEqual(["W"]);
-    expect(entry.dataCheckNote).toMatch(/Attach data/);
+    expect(entry.dataCheckNote).toMatch(/Add data/);
   });
 
   test("an arrow from treatment into the set is explained as making it post-treatment", () => {
@@ -125,7 +125,7 @@ describe("graph-only audit", () => {
     expect(reverse.statement).toBe("You assume Z affects X, not the other way round.");
     expect(reverse.consequence).toMatch(/Z would be affected by treatment/);
     expect(reverse.removedFromSet).toEqual(["Z"]);
-    expect(reverse.dataCheckNote).toMatch(/Attach data/);
+    expect(reverse.dataCheckNote).toMatch(/Add data/);
   });
 
   test("an error that no measured set can survive is reported as such", () => {

@@ -826,6 +826,8 @@ input[type="checkbox"] {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  /* A variable can have a very long name, with nowhere natural to break it. */
+  overflow-wrap: anywhere;
   border: 1px solid var(--border);
   border-radius: var(--radius-sheet);
   background: var(--surface);
@@ -1837,6 +1839,13 @@ td:last-child {
 @media (max-width: 640px) {
   :root {
     --panel-gutter: 16px;
+  }
+
+  /* On a narrow phone four tabs do not fit, and a tab scrolled out of view is a tab nobody finds. */
+  .tabs {
+    flex-wrap: wrap;
+    gap: 0 14px;
+    overflow: visible;
   }
 
   .brand span {

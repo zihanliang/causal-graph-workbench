@@ -556,7 +556,7 @@ export function* runAudit(input: AuditInput): Generator<AuditSnapshot, void, voi
             : error.edit === "remove"
               ? "The data check looks for missing arrows, not for arrows that should not be there."
               : "This pair cannot be tested with the measured variables."
-          : "Attach data to check this against your file.",
+          : "Add data to check this against your file.",
         testId: null,
         alternativeEstimate: null,
         baselineOnSameRows: null,

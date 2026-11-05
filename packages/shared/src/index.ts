@@ -431,6 +431,8 @@ export interface ExplainableSelection {
 /** What a script needs to read the file the way the app did. Null without a file. */
 export interface ReproductionInputs {
   filename: string;
+  /** The delimiter the file was read with. */
+  delimiter: string;
   /** Column for each graph variable that has one. */
   columnOf: Record<string, string>;
   /** How each of those variables was read. */

@@ -125,3 +125,36 @@ describe("when an effect cannot be estimated", () => {
     expect(reason(csv, "t", "y", ["person"])).toMatch(/too many to adjust/);
   });
 });
+
+describe("files an effect cannot be estimated from", () => {
+  const reasonFor = (csv: string, covariates: string[] = []) => {
+    const outcome = fitEffect(contextFor(csv, "t", "y"), covariates);
+    return outcome.ok ? null : outcome.reason;
+  };
+
+  test("no rows, and too few, are said as that", () => {
+    expect(reasonFor("t,y,z\n")).toBe("This file has no rows of data.");
+    expect(reasonFor("t,y,z\n1,2,3\n")).toBe("This file has only 1 row, too few to estimate an effect.");
+    expect(reasonFor("t,y,z\n1,2,3\n0,1,2\n")).toBe("This file has only 2 rows, too few to estimate an effect.");
+  });
+
+  test("an outcome that never changes has no effect to estimate, rather than an effect of zero", () => {
+    const rows = Array.from({ length: 50 }, (_, index) => `${index % 2},3`);
+    expect(reasonFor(["t,y", ...rows].join("\n"))).toMatch(/y has the same value in every row/);
+  });
+
+  test("a covariate with no values is named", () => {
+    const rows = Array.from({ length: 50 }, (_, index) => `${index % 2},${index},NA`);
+    expect(reasonFor(["t,y,z", ...rows].join("\n"), ["z"])).toBe("z has no values in this file.");
+  });
+
+  test("values too large to square are refused, rather than overflowing later", () => {
+    const rows = Array.from({ length: 50 }, (_, index) => `${index % 2},${(index + 1) * 1e200}`);
+    expect(reasonFor(["t,y", ...rows].join("\n"))).toMatch(/y has values too large/);
+  });
+
+  test("one row in a group reads as one row", () => {
+    const withCovariate = ["1,2,1", "0,1,2", "0,3,3", "0,2,4"];
+    expect(reasonFor(["t,y,z", ...withCovariate].join("\n"), ["z"])).toMatch(/has 1 complete row,/);
+  });
+});

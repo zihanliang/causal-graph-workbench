@@ -42,6 +42,7 @@ const NA_VALUES = [
   "missing",
   "Missing",
   "MISSING",
+  ".",
 ];
 
 export function generateCodeSnippets(options: CodegenOptions): CodeSnippet[] {
@@ -116,7 +117,8 @@ function pythonRecode(variable: string, label: string, coding: BinaryCoding | nu
     return [];
   }
   return [
-    `# ${label} is recoded to 0/1. Assumed coding: "${coding.high}" = 1, "${coding.low}" = 0. Swap these if that is wrong.`,
+    // JSON-escaped, because a cell can hold a line break, which in a comment would start a line of code.
+    `# ${label} is recoded to 0/1. Assumed coding: ${pythonString(coding.high)} = 1, ${pythonString(coding.low)} = 0. Swap these if that is wrong.`,
     `df[${variable}] = df[${variable}].astype(str).str.strip().str.lower().map({${pythonString(coding.high)}: 1, ${pythonString(coding.low)}: 0})`,
     "",
   ];
@@ -147,15 +149,16 @@ function pythonSetup(options: CodegenOptions, imports: string[]): string[] {
 
 const PYTHON_MODEL_TERMS = [
   "# Build a formula from the exact recommended adjustment covariates.",
-  "terms = [f'Q(\"{col}\")' for col in [treatment_col, *adjustment_covariates]]",
-  "formula = f'Q(\"{outcome_col}\") ~ ' + \" + \".join(terms)",
+  // {col!r} quotes the name properly. A formula is evaluated as code, so a stray quote in a column name must not end the string.
+  "terms = [f'Q({col!r})' for col in [treatment_col, *adjustment_covariates]]",
+  "formula = f'Q({outcome_col!r}) ~ ' + \" + \".join(terms)",
   "",
 ];
 
 const PYTHON_PROPENSITY = [
   "# Model treatment from the adjustment covariates.",
-  "propensity_rhs = \" + \".join(f'Q(\"{col}\")' for col in adjustment_covariates) or \"1\"",
-  "ps_model = smf.logit(f'Q(\"{treatment_col}\") ~ {propensity_rhs}', data=df).fit(disp=0)",
+  "propensity_rhs = \" + \".join(f'Q({col!r})' for col in adjustment_covariates) or \"1\"",
+  "ps_model = smf.logit(f'Q({treatment_col!r}) ~ {propensity_rhs}', data=df).fit(disp=0)",
   'df["propensity_score"] = ps_model.predict(df)',
   'print(df.groupby(treatment_col)["propensity_score"].describe())',
   "",
@@ -178,7 +181,7 @@ function pythonStatsmodels(options: CodegenOptions): string {
     "",
     ...(hasScalarEffect
       ? [
-          "effect_term = f'Q(\"{treatment_col}\")'",
+          "effect_term = f'Q({treatment_col!r})'",
           "effect = result.params[effect_term]",
           "ci_low, ci_high = result.conf_int().loc[effect_term]",
           ...(outcomeIsBinary
@@ -243,9 +246,9 @@ function pythonWeighting(options: CodegenOptions): string {
       ? "# The weighted difference in means is the ATE, here as a risk difference."
       : "# The weighted difference in means is the ATE.",
     "# Robust standard errors ignore that the weights are estimated, which is usually conservative.",
-    "effect_formula = f'Q(\"{outcome_col}\") ~ Q(\"{treatment_col}\")'",
+    "effect_formula = f'Q({outcome_col!r}) ~ Q({treatment_col!r})'",
     'effect_model = smf.wls(effect_formula, data=df, weights=df["ipw"]).fit(cov_type="HC1")',
-    "effect_term = f'Q(\"{treatment_col}\")'",
+    "effect_term = f'Q({treatment_col!r})'",
     "ate = effect_model.params[effect_term]",
     "ci_low, ci_high = effect_model.conf_int().loc[effect_term]",
     'print(f"IPW ATE: {ate:.4g} (95% CI {ci_low:.4g} to {ci_high:.4g})")',
@@ -296,11 +299,11 @@ function pythonAipw(options: CodegenOptions): string {
     ...pythonSetup(options, ["import numpy as np", "import pandas as pd", "import statsmodels.formula.api as smf"]),
     ...PYTHON_PROPENSITY,
     "# Fit the outcome model, letting the treatment effect vary with the covariates.",
-    "outcome_terms = \" + \".join(f'Q(\"{col}\")' for col in adjustment_covariates)",
-    "outcome_rhs = f'Q(\"{treatment_col}\") * ({outcome_terms})' if outcome_terms else f'Q(\"{treatment_col}\")'",
+    "outcome_terms = \" + \".join(f'Q({col!r})' for col in adjustment_covariates)",
+    "outcome_rhs = f'Q({treatment_col!r}) * ({outcome_terms})' if outcome_terms else f'Q({treatment_col!r})'",
     outcomeIsBinary
-      ? "outcome_model = smf.logit(f'Q(\"{outcome_col}\") ~ {outcome_rhs}', data=df).fit(disp=0)"
-      : "outcome_model = smf.ols(f'Q(\"{outcome_col}\") ~ {outcome_rhs}', data=df).fit()",
+      ? "outcome_model = smf.logit(f'Q({outcome_col!r}) ~ {outcome_rhs}', data=df).fit(disp=0)"
+      : "outcome_model = smf.ols(f'Q({outcome_col!r}) ~ {outcome_rhs}', data=df).fit()",
     "",
     "# Predict each unit's outcome both as treated and as untreated.",
     "mu1 = outcome_model.predict(df.assign(**{treatment_col: 1}))",
@@ -340,7 +343,7 @@ function rRecode(variable: string, label: string, coding: BinaryCoding | null | 
     return [];
   }
   return [
-    `# ${label} is recoded to 0/1. Assumed coding: "${coding.high}" = 1, "${coding.low}" = 0. Swap these if that is wrong.`,
+    `# ${label} is recoded to 0/1. Assumed coding: ${rString(coding.high)} = 1, ${rString(coding.low)} = 0. Swap these if that is wrong.`,
     `coded <- tolower(trimws(df[[${variable}]]))`,
     `df[[${variable}]] <- ifelse(coded == ${rString(coding.high)}, 1, ifelse(coded == ${rString(coding.low)}, 0, NA))`,
     "",
@@ -365,8 +368,10 @@ function rTemplate(options: CodegenOptions): string {
     "df <- df[complete.cases(df[, used_cols, drop = FALSE]), , drop = FALSE]",
     "",
     "# Build the model formula with the exact recommended covariates.",
-    'rhs_terms <- sprintf("`%s`", c(treatment_col, adjustment_covariates))',
-    'formula <- as.formula(paste(sprintf("`%s`", outcome_col), "~", paste(rhs_terms, collapse = " + ")))',
+    "# Backticks inside a name are escaped, because a formula is evaluated as code.",
+    'quoted <- function(names) sprintf("`%s`", gsub("`", "\\\\`", names, fixed = TRUE))',
+    'rhs_terms <- quoted(c(treatment_col, adjustment_covariates))',
+    'formula <- as.formula(paste(quoted(outcome_col), "~", paste(rhs_terms, collapse = " + ")))',
     "",
     "# Fit the model. For robust standard errors, see the sandwich and lmtest packages.",
     outcomeIsBinary ? 'fit <- glm(formula, data = df, family = binomial(link = "logit"))' : "fit <- lm(formula, data = df)",

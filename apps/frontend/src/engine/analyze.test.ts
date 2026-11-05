@@ -417,3 +417,110 @@ describe("code generation", () => {
     );
   });
 });
+
+describe("reading a file the way people write them", () => {
+  const graph: GraphSpec = {
+    nodes: ["X", "Y", "Z"].map((id) => ({ id, label: id, x: 0, y: 0 })),
+    edges: [
+      { id: "Z->X", source: "Z", target: "X" },
+      { id: "Z->Y", source: "Z", target: "Y" },
+      { id: "X->Y", source: "X", target: "Y" },
+    ],
+    treatmentId: "X",
+    outcomeId: "Y",
+  };
+  const file = (zAt: (index: number) => string) => {
+    const rows = Array.from({ length: 200 }, (_, index) => {
+      const z = Math.sin(index * 1.3);
+      return `${z + Math.cos(index * 2.1) > 0 ? 1 : 0},${(z + Math.sin(index * 4.7)).toFixed(3)},${zAt(index) || z.toFixed(3)}`;
+    });
+    return ["X,Y,Z", ...rows].join("\n");
+  };
+  const warningsFor = (content: string) => analyze({ graph, dataset: { filename: "s.csv", content } }).dataDiagnostics!.warnings;
+
+  test("a dot means missing, as Stata and SAS write it", () => {
+    const result = analyze({ graph, dataset: { filename: "s.csv", content: file((index) => (index % 20 === 0 ? "." : "")) } });
+    expect(result.effect!.estimate).not.toBeNull();
+    expect(result.effect!.estimate!.rowsDropped).toBe(10);
+  });
+
+  test("a stray cell in a numeric column is pointed out, with an example", () => {
+    const warnings = warningsFor(file((index) => (index === 7 ? "oops" : "")));
+    expect(warnings.some((warning) => /Z is mostly numbers, but 1 value is not, such as "oops"/.test(warning))).toBe(true);
+  });
+
+  test("numbers written with commas or symbols are pointed out", () => {
+    const content = file((index) => `"$1,${String(100 + index)}"`);
+    expect(warningsFor(content).some((warning) => /Z looks like numbers written with commas or symbols/.test(warning))).toBe(true);
+  });
+
+  test("comma decimals are pointed out", () => {
+    const content = file((index) => `"${index},5"`);
+    expect(warningsFor(content).some((warning) => /Z looks like numbers written with commas or symbols/.test(warning))).toBe(true);
+  });
+
+  test("real categories are not called numbers", () => {
+    const warnings = warningsFor(file((index) => ["north", "south", "east"][index % 3]));
+    expect(warnings.some((warning) => /numbers/.test(warning))).toBe(false);
+  });
+
+  test("a file with no rows says so", () => {
+    expect(warningsFor("X,Y,Z\n").some((warning) => /header but no rows/.test(warning))).toBe(true);
+    expect(warningsFor("").some((warning) => /No rows could be read/.test(warning))).toBe(true);
+  });
+
+  test("variables can have names in any script, and match their columns", () => {
+    const chinese: GraphSpec = {
+      nodes: ["教育", "收入", "年龄"].map((id) => ({ id, label: id, x: 0, y: 0 })),
+      edges: [
+        { id: "年龄->教育", source: "年龄", target: "教育" },
+        { id: "年龄->收入", source: "年龄", target: "收入" },
+        { id: "教育->收入", source: "教育", target: "收入" },
+      ],
+      treatmentId: "教育",
+      outcomeId: "收入",
+    };
+    const result = analyze({ graph: chinese, dataset: { filename: "s.csv", content: file(() => "").replace("X,Y,Z", "教育,收入,年龄") } });
+    expect(result.validation.canAnalyze).toBe(true);
+    expect(result.dataDiagnostics!.variableBindings.every((binding) => binding.matched)).toBe(true);
+    expect(result.effect!.estimate).not.toBeNull();
+  });
+});
+
+describe("generated code", () => {
+  const graph: GraphSpec = {
+    nodes: ["X", "Y", "Z"].map((id) => ({ id, label: id, x: 0, y: 0 })),
+    edges: [
+      { id: "Z->X", source: "Z", target: "X" },
+      { id: "Z->Y", source: "Z", target: "Y" },
+      { id: "X->Y", source: "X", target: "Y" },
+    ],
+    treatmentId: "X",
+    outcomeId: "Y",
+  };
+
+  test("a line break in a cell cannot start a line of code", () => {
+    const rows = Array.from({ length: 100 }, (_, index) => {
+      const z = Math.sin(index);
+      return `"${z > 0 ? "yes\nrun_this()\n#" : "control"}",${(z + index / 100).toFixed(3)},${z.toFixed(3)}`;
+    });
+    const { codeSnippets } = analyze({ graph, dataset: { filename: "s.csv", content: ["X,Y,Z", ...rows].join("\n") } });
+    expect(codeSnippets.length).toBeGreaterThan(0);
+    for (const snippet of codeSnippets) {
+      expect(snippet.content.split("\n").some((line) => line.trim().startsWith("run_this"))).toBe(false);
+    }
+  });
+
+  test("a quote in a column name cannot end the string in a formula", () => {
+    const { codeSnippets } = analyze({
+      graph,
+      dataContext: { columnBindings: { Z: 'z"); run_this(); ("' } },
+      dataset: { filename: "s.csv", content: 'X,Y,"z""); run_this(); ("""\n1,2,3\n0,1,2\n1,3,1\n0,2,2\n' },
+    });
+    const python = codeSnippets.find((snippet) => snippet.id === "python-statsmodels")!.content;
+    expect(python).toContain("{col!r}");
+    expect(python).not.toContain('Q("{col}")');
+    const r = codeSnippets.find((snippet) => snippet.id === "r-template")!.content;
+    expect(r).toContain("gsub");
+  });
+});

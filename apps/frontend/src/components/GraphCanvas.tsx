@@ -18,7 +18,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { useEffect, useMemo, type RefObject } from "react";
+import { useEffect, useMemo, useState, type RefObject } from "react";
 
 import { roleCaption } from "../lib/format";
 import { useWorkbenchStore } from "../store/useWorkbenchStore";
@@ -91,6 +91,8 @@ function GraphCanvasInner({ graph, analysis, graphShellRef }: GraphCanvasProps) 
   const setSelectedExplainable = useWorkbenchStore((state) => state.setSelectedExplainable);
   const setHighlightedPathId = useWorkbenchStore((state) => state.setHighlightedPathId);
   const { fitView } = useReactFlow();
+  // React Flow deletes what is marked as selected, and in this controlled graph that mark has to come from here.
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
 
   // `fitView` on the component only applies on mount, so a pasted graph could land out of view.
   const nodeSetKey = graph.nodes.map((node) => node.id).sort().join("|");
@@ -166,6 +168,7 @@ function GraphCanvasInner({ graph, analysis, graphShellRef }: GraphCanvasProps) 
         ),
       },
       position: { x: node.x, y: node.y },
+      selected: selectedExplainable?.kind === "node" && selectedExplainable.id === node.id,
       className: nodeClass(node.id, isMeasured, graph, roles, selectedExplainable, highlightedNodes.has(node.id)),
     };
   });
@@ -181,10 +184,11 @@ function GraphCanvasInner({ graph, analysis, graphShellRef }: GraphCanvasProps) 
       source: edge.source,
       target: edge.target,
       animated: isHighlighted,
+      selected: selectedEdgeId === edge.id,
       markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color },
       style: {
         stroke: color,
-        strokeWidth: isHighlighted || goesAway ? 2.5 : isCausal ? 2.25 : 1.5,
+        strokeWidth: selectedEdgeId === edge.id || isHighlighted || goesAway ? 2.5 : isCausal ? 2.25 : 1.5,
         ...(goesAway ? { strokeDasharray: "3 5" } : {}),
       },
     };
@@ -221,8 +225,16 @@ function GraphCanvasInner({ graph, analysis, graphShellRef }: GraphCanvasProps) 
         onPaneClick={() => {
           setSelectedExplainable(null);
           setHighlightedPathId(null);
+          setSelectedEdgeId(null);
         }}
-        onNodeClick={(_, node) => setSelectedExplainable({ kind: "node", id: node.id })}
+        onEdgeClick={(_, edge) => {
+          setSelectedExplainable(null);
+          setSelectedEdgeId(edge.id);
+        }}
+        onNodeClick={(_, node) => {
+          setSelectedEdgeId(null);
+          setSelectedExplainable({ kind: "node", id: node.id });
+        }}
         onNodeDragStop={(_, node) => updateNodePosition(node.id, node.position.x, node.position.y)}
         onNodesDelete={(deleted) => deleted.forEach((node) => removeNode(node.id))}
         onEdgesDelete={(deleted) => deleted.forEach((edge) => removeEdge(edge.id))}

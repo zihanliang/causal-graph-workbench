@@ -19,6 +19,7 @@ const MISSING_TOKENS = new Set([
   "null",
   "none",
   "missing",
+  ".",
 ]);
 const TRUE_TOKENS = new Set(["1", "true", "yes", "y", "treated"]);
 const FALSE_TOKENS = new Set(["0", "false", "no", "n", "control"]);
@@ -30,6 +31,8 @@ export interface DataTable {
   columns: Map<string, string[]>;
   rowCount: number;
   warnings: string[];
+  /** The delimiter used to read the file, so that a script can read it the same way. */
+  delimiter: string;
 }
 
 export function normalizeScalar(value: string): string {
@@ -47,7 +50,7 @@ export function toNumber(value: string): number | null {
 }
 
 export function normalizeName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 let cached: { content: string; delimiter: string | null | undefined; table: DataTable } | null = null;
@@ -65,7 +68,7 @@ export function parseDataset(dataset: UploadedDataset): DataTable {
 function parseCsv(content: string, delimiter?: string | null): DataTable {
   const text = content.replace(/^﻿/, "");
   if (!text.trim()) {
-    return { headers: [], columns: new Map(), rowCount: 0, warnings: [] };
+    return { headers: [], columns: new Map(), rowCount: 0, warnings: [], delimiter: delimiter ?? "," };
   }
 
   const parsed = Papa.parse<string[]>(text, { header: false, delimiter: delimiter ?? "", skipEmptyLines: "greedy" });
@@ -100,7 +103,7 @@ function parseCsv(content: string, delimiter?: string | null): DataTable {
     warnings.push(`${irregular} row(s) have a different number of fields than the header. Check the delimiter and quoting.`);
   }
 
-  return { headers, columns, rowCount: rows.length, warnings };
+  return { headers, columns, rowCount: rows.length, warnings, delimiter: parsed.meta.delimiter || delimiter || "," };
 }
 
 export function inferVariableType(values: string[]): VariableType {
