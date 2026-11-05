@@ -1,5 +1,5 @@
 import type { AnalysisResult, GraphNode, RoleType, VariableTiming } from "@causal-graph-workbench/shared";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { roleCaption } from "../lib/format";
 import { useWorkbenchStore } from "../store/useWorkbenchStore";
@@ -255,6 +255,7 @@ function VariableRow({
   onTimingChange: (timing: VariableTiming | null) => void;
 }) {
   const [draftName, setDraftName] = useState(node.id);
+  const isCancelling = useRef(false);
   useEffect(() => setDraftName(node.id), [node.id]);
 
   return (
@@ -278,10 +279,21 @@ function VariableRow({
           value={draftName}
           onClick={(event) => event.stopPropagation()}
           onChange={(event) => setDraftName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.currentTarget.blur();
+            } else if (event.key === "Escape") {
+              isCancelling.current = true;
+              event.currentTarget.blur();
+            }
+          }}
           onBlur={() => {
-            if (draftName.trim() && draftName !== node.id) {
+            if (!isCancelling.current && draftName.trim() && draftName !== node.id) {
               onRename(draftName);
             }
+            isCancelling.current = false;
+            // An empty box, or one that cleans up to the same name, goes back to showing the real name.
+            setDraftName(node.id);
           }}
         />
         {caption ? <span className="var__role">{caption}</span> : null}

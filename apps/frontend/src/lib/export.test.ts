@@ -1,10 +1,80 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { analyze } from "../engine/analyze";
-import { buildGraphSvg, buildMarkdownReport, openAnalysisPdf, parseProjectSnapshotText } from "./export";
+import { buildGraphSvg, buildMarkdownReport, buildPrintableReportHtml, openAnalysisPdf, parseProjectSnapshotText } from "./export";
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("project files", () => {
+  test.each(["{ not json", "", "[1, 2]", '{"hello": "world"}'])("%j gets one plain message, not a parser's", (text) => {
+    expect(() => parseProjectSnapshotText(text)).toThrow("That file could not be opened, because it is not a project saved from this app.");
+  });
+});
+
+describe("the printable report", () => {
+  const graph = {
+    nodes: [
+      { id: "Z", label: "Z", x: 200, y: 20 },
+      { id: "X", label: "X", x: 20, y: 200 },
+      { id: "Y", label: "Y", x: 400, y: 200 },
+    ],
+    edges: [
+      { id: "Z->X", source: "Z", target: "X" },
+      { id: "Z->Y", source: "Z", target: "Y" },
+      { id: "X->Y", source: "X", target: "Y" },
+    ],
+    treatmentId: "X",
+    outcomeId: "Y",
+  };
+  const html = buildPrintableReportHtml(graph, analyze({ graph }));
+
+  test("leaves printing to the page that asks, so the dialog cannot open twice", () => {
+    expect(html).not.toMatch(/<script/i);
+    expect(html).not.toContain("print()");
+  });
+
+  test("the frame it prints from has the size of a page, because a 0 by 0 frame can collapse the report", () => {
+    vi.useFakeTimers();
+    const frames: HTMLIFrameElement[] = [];
+    const append = vi.spyOn(document.body, "appendChild").mockImplementation((node) => {
+      frames.push(node as HTMLIFrameElement);
+      return node;
+    });
+    openAnalysisPdf(graph, analyze({ graph }));
+    append.mockRestore();
+    vi.useRealTimers();
+    expect(frames[0].style.width).toBe("794px");
+    expect(frames[0].style.height).toBe("1123px");
+    expect(frames[0].style.left).toBe("-10000px");
+  });
+
+  test("has the graph in it, as a drawing", () => {
+    expect(html).toContain("<svg");
+    expect(html).not.toContain("<?xml");
+    expect(html).toContain(">treatment<");
+  });
+
+  test("does not talk about itself, or show internal codes", () => {
+    expect(html).not.toMatch(/print-to-PDF|Printable/);
+    expect(html).not.toMatch(/graph_summary|path-\d+/);
+  });
+
+  test("a warning on the graph reads as a sentence, without its internal code", () => {
+    const lonely = { ...graph, nodes: [...graph.nodes, { id: "Q", label: "Q", x: 0, y: 0 }] };
+    const report = buildPrintableReportHtml(lonely, analyze({ graph: lonely }));
+    expect(report).toContain("Isolated or disconnected");
+    expect(report).not.toContain("isolated_node");
+    const markdown = buildMarkdownReport(lonely, analyze({ graph: lonely }));
+    expect(markdown).toContain("Warning: Isolated or disconnected");
+    expect(markdown).not.toContain("isolated_node");
+  });
+
+  test("sets margins, and does not forbid long sections from breaking across pages", () => {
+    expect(html).toContain("@page");
+    expect(html).not.toMatch(/section\s*\{[^}]*break-inside/);
+  });
 });
 
 describe("graph as SVG", () => {

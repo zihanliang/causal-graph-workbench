@@ -115,7 +115,8 @@ export function CodeTab({ analysis, snippetId, onSelectSnippet }: CodeTabProps) 
               )}
             </button>
           </div>
-          <pre className="code-block">
+          {/* Focusable, so that someone on a keyboard can scroll it too. */}
+          <pre className="code-block" tabIndex={0} aria-label={`Code: ${selected.label}`}>
             <code>{selected.content}</code>
           </pre>
           {analysis.effect?.status === "running" || analysis.audit?.status === "running" ? <p className="hint">The script for the whole analysis appears when the checks have finished.</p> : null}

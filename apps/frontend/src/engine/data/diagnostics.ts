@@ -53,7 +53,7 @@ export function profileDataset(
       missingness: columnProfiles
         .map(({ columnName, missingCount, missingRate }) => ({ columnName, missingCount, missingRate }))
         .sort((left, right) => right.missingRate - left.missingRate),
-      warnings: [...table.warnings, ...buildDataWarnings(graph, columnProfiles, bindings)],
+      warnings: [...table.warnings, ...buildDataWarnings(graph, columnProfiles, bindings, table)],
       treatmentBalance: null,
       overlapDiagnostics: null,
     },
@@ -140,8 +140,44 @@ function profileForNode(
   return column ? (profiles.find((profile) => profile.columnName === column) ?? null) : null;
 }
 
-function buildDataWarnings(graph: GraphSpec, profiles: ColumnProfile[], bindings: VariableBinding[]): string[] {
+/** The share of a column's values at which it counts as "really" numeric, despite the rest. */
+const MOSTLY_NUMERIC = 0.8;
+
+/** A numeric column read as categories, because of a few stray cells or the way it is written, says why. */
+function numericColumnWarning(column: string, values: string[]): string | null {
+  const present = values.filter((value) => !isMissing(value));
+  if (!present.length) {
+    return null;
+  }
+  const notNumbers = present.filter((value) => toNumber(value) === null);
+  if ((present.length - notNumbers.length) / present.length >= MOSTLY_NUMERIC) {
+    const count = notNumbers.length;
+    return `${column} is mostly numbers, but ${count} ${count === 1 ? "value is" : "values are"} not, such as "${notNumbers[0]}". It was read as categories, so blank or fix ${count === 1 ? "that cell" : "those cells"}.`;
+  }
+  const withoutSymbols = present.filter((value) => toNumber(value.replace(/[$€£¥%,\s]/g, "")) !== null);
+  if (withoutSymbols.length / present.length >= MOSTLY_NUMERIC) {
+    return `${column} looks like numbers written with commas or symbols, such as "${withoutSymbols[0]}". It was read as categories, so remove them, and use a point for decimals.`;
+  }
+  return null;
+}
+
+function buildDataWarnings(graph: GraphSpec, profiles: ColumnProfile[], bindings: VariableBinding[], table: DataTable): string[] {
   const warnings: string[] = [];
+  if (!table.rowCount) {
+    warnings.push(
+      table.headers.length
+        ? "This file has a header but no rows of data."
+        : "No rows could be read from this file. It needs to be a CSV with a header row.",
+    );
+  }
+  for (const profile of profiles) {
+    if (profile.inferredType === "categorical") {
+      const warning = numericColumnWarning(profile.columnName, table.columns.get(profile.columnName) ?? []);
+      if (warning) {
+        warnings.push(warning);
+      }
+    }
+  }
   const declaredUnmeasured = new Set(graph.nodes.filter((node) => node.observed === false).map((node) => node.id));
   const unmatched = bindings
     .filter((binding) => !binding.matched && !declaredUnmeasured.has(binding.nodeId))

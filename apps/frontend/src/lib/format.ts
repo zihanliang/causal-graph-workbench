@@ -5,6 +5,13 @@ export function formatNumber(value: number): string {
     return "n/a";
   }
   const size = Math.abs(value);
+  // Very large numbers would run to hundreds of digits, and small ones would read as exactly zero.
+  if (size >= 1e7) {
+    return value.toExponential(2);
+  }
+  if (size > 0 && size < 0.001) {
+    return value.toPrecision(3);
+  }
   if (size >= 1000) {
     return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
   }
@@ -27,6 +34,14 @@ export function joinNames(names: string[]): string {
     return names.join("");
   }
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/** At most a few names, so that a long list cannot push everything else off the screen. */
+export function shortList(names: string[], limit = 5): string {
+  if (names.length <= limit) {
+    return joinNames(names);
+  }
+  return `${names.slice(0, limit).join(", ")} and ${names.length - limit} others`;
 }
 
 /** The word printed under a variable on the canvas, so the graph can be read without a legend. */

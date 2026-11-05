@@ -2,7 +2,7 @@ import type { GraphSpec, Issue, Severity, ValidationSummary } from "@causal-grap
 
 import { Dag } from "./graph";
 
-const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const VARIABLE_NAME = /^[\p{L}_][\p{L}\p{N}_]*$/u;
 const HARD_BLOCKS = new Set(["empty_graph", "duplicate_node_id", "invalid_variable_name", "duplicate_edge", "dangling_edge"]);
 
 function issue(
@@ -63,7 +63,7 @@ export function validateGraph(graph: GraphSpec): ValidationSummary {
   const invalidNames = [...nodeIds].filter((id) => !VARIABLE_NAME.test(id)).sort();
   if (invalidNames.length) {
     issues.push(
-      issue("error", "invalid_variable_name", "Variable names must match ^[A-Za-z_][A-Za-z0-9_]*$.", {
+      issue("error", "invalid_variable_name", "Variable names can use letters, numbers and underscores, and cannot start with a number.", {
         nodeIds: invalidNames,
       }),
     );

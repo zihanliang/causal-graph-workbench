@@ -1,13 +1,15 @@
 import type { AnalysisResult, EffectEstimate, GraphSpec } from "@causal-graph-workbench/shared";
 import { useState } from "react";
 
-import { effectInterval, effectValue, joinNames } from "../lib/format";
+import { effectInterval, effectValue, joinNames, shortList } from "../lib/format";
 import { useWorkbenchStore, type PanelTab } from "../store/useWorkbenchStore";
 import { AssumptionsTab } from "./AssumptionsTab";
 import { CodeTab } from "./CodeTab";
 import { DetailsTab } from "./DetailsTab";
 import { SetsTab } from "./SetsTab";
 import { Disclosure, IssueList } from "./ui";
+
+const MAX_NAMES_IN_TITLE = 6;
 
 const TABS: { id: PanelTab; label: string }[] = [
   { id: "assumptions", label: "What it rests on" },
@@ -84,6 +86,23 @@ function ResultHeader({ analysis, onShowSnippet }: { analysis: AnalysisResult | 
   }
 
   const set = analysis.baselineSet;
+  const diagnostics = analysis.dataDiagnostics;
+  // Variables the file cannot supply count as unmeasured, so say so when that is what decided the answer.
+  const unmatched = diagnostics ? diagnostics.variableBindings.filter((binding) => !binding.matched && binding.note !== "Marked as not measured.").map((binding) => binding.nodeId) : [];
+  const nothingMatched = Boolean(diagnostics) && !diagnostics!.variableBindings.some((binding) => binding.matched);
+  if (nothingMatched) {
+    return (
+      <header className="panel__head">
+        <h1>This file does not match your graph</h1>
+        <p>None of its columns could be matched to your variables, so nothing can be estimated from it.</p>
+        <div className="button-row">
+          <button type="button" className="btn btn--primary" onClick={() => setStep("data")}>
+            Check the file and its columns
+          </button>
+        </div>
+      </header>
+    );
+  }
   const measuredForbidden = analysis.forbiddenVariables.map((item) => item.nodeId);
   const isOwnChoice = Boolean(dataContext.chosenSet && set && set.join() === [...dataContext.chosenSet].sort().join() && set.join() !== analysis.recommendedAdjustmentSet.join());
   const estimate = analysis.effect?.estimate ?? null;
@@ -91,13 +110,30 @@ function ResultHeader({ analysis, onShowSnippet }: { analysis: AnalysisResult | 
 
   return (
     <header className="panel__head panel__head--result">
-      <h1>{set === null ? "No measured variables can remove the bias" : set.length ? `Adjust for ${joinNames(set)}` : "No adjustment needed"}</h1>
+      <h1>
+        {set === null
+          ? "No measured variables can remove the bias"
+          : set.length > MAX_NAMES_IN_TITLE
+            ? `Adjust for these ${set.length} variables`
+            : set.length
+              ? `Adjust for ${joinNames(set)}`
+              : "No adjustment needed"}
+      </h1>
+      {set && set.length > MAX_NAMES_IN_TITLE ? <p className="hint">{set.join(", ")}</p> : null}
       <p>
+        {set === null && unmatched.length ? (
+          <>
+            {joinNames(unmatched)} {unmatched.length === 1 ? "has" : "have"} no column in this file, so {unmatched.length === 1 ? "it counts" : "they count"} as unmeasured.{" "}
+            <button type="button" className="link-button" onClick={() => setStep("data")}>
+              Match columns
+            </button>{" "}
+          </>
+        ) : null}
         {set === null
           ? "With the variables you have, every choice leaves a backdoor path open, so the effect cannot be estimated by adjusting."
           : set.length
             ? measuredForbidden.length
-              ? `Do not adjust for ${joinNames(measuredForbidden)}.`
+              ? `Do not adjust for ${shortList(measuredForbidden)}.`
               : "If your graph is right, this set blocks every backdoor path."
             : "This graph has no open backdoor path, so the effect can be estimated without adjusting for any variable."}
         {isOwnChoice ? (
@@ -141,7 +177,16 @@ function EffectLine({
     );
   }
   if (!estimate) {
-    return <p className="effect__empty">{effect?.unavailableReason ?? "Estimating the effect…"}</p>;
+    return (
+      <p className="effect__empty">
+        {effect?.unavailableReason ?? "Estimating the effect…"}{" "}
+        {effect?.unavailableReason && analysis.dataDiagnostics?.warnings.length ? (
+          <button type="button" className="link-button" onClick={() => setStep("data")}>
+            See what the file check found
+          </button>
+        ) : null}
+      </p>
+    );
   }
 
   const snippet = analysis.codeSnippets.find((item) => item.id === estimate.snippetId);
@@ -172,7 +217,7 @@ function EffectLine({
         ) : null}
       </p>
       {estimate.warnings.length ? (
-        <Disclosure title="Cautions about this estimate" count={estimate.warnings.length}>
+        <Disclosure title="Cautions about this estimate" count={estimate.warnings.length} defaultOpen>
           <ul className="plain-list">
             {estimate.warnings.map((warning) => (
               <li key={warning}>{warning}</li>

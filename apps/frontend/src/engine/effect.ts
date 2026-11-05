@@ -10,6 +10,8 @@ export const CI_MULTIPLIER = 1.959964;
 export const PROPENSITY_FLOOR = 0.01;
 export const PROPENSITY_CEILING = 0.99;
 const MAX_CATEGORY_LEVELS = 30;
+/** Squaring anything larger would overflow, and everything downstream squares. */
+const MAX_MAGNITUDE = 1e100;
 const CLIPPED_WARNING_SHARE = 0.1;
 
 export interface BoundColumn {
@@ -91,6 +93,11 @@ function covariateTerms(nodes: string[], context: EffectContext): { terms: Covar
 export function fitEffect(context: EffectContext, covariates: string[], alsoComplete: string[] = [], options: FitOptions = {}): FitOutcome {
   const { table, treatment, outcome } = context;
 
+  if (table.rowCount < 3) {
+    return unavailable(
+      table.rowCount ? `This file has only ${table.rowCount} ${table.rowCount === 1 ? "row" : "rows"}, too few to estimate an effect.` : "This file has no rows of data.",
+    );
+  }
   if (outcome.type !== "binary" && outcome.type !== "continuous") {
     return unavailable(`${outcome.column} needs to be numeric or have exactly two values to estimate an effect.`);
   }
@@ -124,11 +131,26 @@ export function fitEffect(context: EffectContext, covariates: string[], alsoComp
     table.rowCount,
   );
   if (rows.length < 3) {
-    return unavailable("Too few rows have complete data for these variables.");
+    const empty = covariates.find((node) => {
+      const bound = context.columnOf(node);
+      return bound && expandColumn(bound.column, bound.type, table).terms.every((term) => term.values.every(Number.isNaN));
+    });
+    return unavailable(empty ? `${context.columnOf(empty)!.column} has no values in this file.` : "Too few rows have complete data for these variables.");
   }
 
   const t = takeRows(treatmentValues, rows);
   const y = takeRows(outcomeValues, rows);
+  if (y.every((value) => value === y[0])) {
+    return unavailable(`${outcome.column} has the same value in every row used, so there is no effect to estimate.`);
+  }
+  for (const [values, bound] of [
+    [t, treatment],
+    [y, outcome],
+  ] as const) {
+    if (values.some((value) => Math.abs(value) > MAX_MAGNITUDE)) {
+      return unavailable(`${bound.column} has values too large to compute with. Rescale it first.`);
+    }
+  }
   const covariateColumns = resolved.terms.map((term) => takeRows(term.values, rows));
   const labels = resolved.terms.map((term) => term.label);
   const shared = { rows, adjustmentSet: [...covariates].sort(), outcomeIsBinary: outcome.type === "binary" };
@@ -292,7 +314,7 @@ function fitAipw(
   const columns = [new Float64Array(count).fill(1), ...covariates];
   if (Math.min(treatedCount, controlCount) <= columns.length) {
     return unavailable(
-      `The smaller treatment group has ${Math.min(treatedCount, controlCount)} complete rows, too few to fit ${columns.length} model terms.`,
+      `The smaller treatment group has ${Math.min(treatedCount, controlCount)} complete ${Math.min(treatedCount, controlCount) === 1 ? "row" : "rows"}, too few to fit ${columns.length} model terms.`,
     );
   }
 

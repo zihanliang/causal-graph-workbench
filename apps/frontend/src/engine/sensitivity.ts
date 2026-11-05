@@ -63,6 +63,11 @@ function standardizedEValue(difference: number, standardError: number, contrast:
 }
 
 export function computeEValue(fit: EffectFit, context: EffectContext): EValueSummary | null {
+  const summary = eValueOf(fit, context);
+  return summary && Number.isFinite(summary.point) && Number.isFinite(summary.interval) ? summary : null;
+}
+
+function eValueOf(fit: EffectFit, context: EffectContext): EValueSummary | null {
   const design = linearDesign(context, [], fit.rows);
   if (!design) {
     return null;
@@ -124,6 +129,11 @@ function strengthOf(treatmentShare: number, outcomeShare: number): number {
   return Math.sqrt((outcomeShare * treatment) / (1 - treatment));
 }
 
+/** A comparison that came out as NaN, for instance from a variable that does not vary, is no comparison. */
+function finiteBenchmark(benchmark: SensitivityBenchmark): SensitivityBenchmark | null {
+  return Number.isFinite(benchmark.shareOfEstimate) && Number.isFinite(benchmark.treatmentShare) && Number.isFinite(benchmark.outcomeShare) ? benchmark : null;
+}
+
 function clip(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, value));
 }
@@ -176,6 +186,9 @@ function startAipw(fit: EffectFit): RobustnessStart | null {
     return null;
   }
   const scale = Math.sqrt(bound.sigma2 * bound.nu2);
+  if (!Number.isFinite(scale)) {
+    return null;
+  }
   const f = Math.abs(fit.estimate) / scale;
   return {
     summary: {
@@ -193,7 +206,7 @@ function startAipw(fit: EffectFit): RobustnessStart | null {
       // DoubleML's gain statistics: what this variable adds, relative to the model that already has it.
       const treatmentShare = clip((bound.nu2 - withoutIt.bound.nu2) / withoutIt.bound.nu2, 0, 1);
       const outcomeShare = clip((withoutIt.bound.sigma2 - bound.sigma2) / bound.sigma2, 0, 1);
-      return { variable, treatmentShare, outcomeShare, shareOfEstimate: (strengthOf(treatmentShare, outcomeShare) * scale) / Math.abs(fit.estimate) };
+      return finiteBenchmark({ variable, treatmentShare, outcomeShare, shareOfEstimate: (strengthOf(treatmentShare, outcomeShare) * scale) / Math.abs(fit.estimate) });
     },
   };
 }
@@ -223,7 +236,7 @@ function startLinear(fit: EffectFit, context: EffectContext, covariates: string[
   const treatmentResiduals = fitOls(allTerms, t).residuals;
   const treatmentVariation = dot(treatmentResiduals, treatmentResiduals);
   const outcomeResidualSum = dot(outcomeFit.residuals, outcomeFit.residuals);
-  if (dof < 2 || !(treatmentVariation > 0) || !(outcomeResidualSum > 0)) {
+  if (dof < 2 || !(treatmentVariation > 0) || !(outcomeResidualSum > 0) || !Number.isFinite(outcomeResidualSum) || !Number.isFinite(treatmentVariation)) {
     return null;
   }
   const standardError = Math.sqrt(outcomeResidualSum / dof / treatmentVariation);
@@ -260,7 +273,7 @@ function startLinear(fit: EffectFit, context: EffectContext, covariates: string[
       const gain = (r2Treatment * r2Treatment) / ((1 - r2Treatment) * (1 - r2Treatment));
       const outcomeShare =
         gain >= 1 ? 1 : clip(((1 + Math.sqrt(gain)) ** 2 / (1 - gain)) * (r2Outcome / (1 - r2Outcome)), 0, 1);
-      return { variable, treatmentShare, outcomeShare, shareOfEstimate: (strengthOf(treatmentShare, outcomeShare) * scale) / Math.abs(estimate) };
+      return finiteBenchmark({ variable, treatmentShare, outcomeShare, shareOfEstimate: (strengthOf(treatmentShare, outcomeShare) * scale) / Math.abs(estimate) });
     },
   };
 }

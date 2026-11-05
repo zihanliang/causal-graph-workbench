@@ -333,7 +333,7 @@ export function summarizeAdjustmentSets(
       }
       if (openedBy.length) {
         openedPathIds.push(id);
-        concerns.push(`${id} contains collider structure activated by conditioning on ${openedBy.join(", ")}.`);
+        concerns.push(`Conditioning on ${openedBy.join(", ")} activates a collider on ${path.pathString}.`);
       }
     });
 

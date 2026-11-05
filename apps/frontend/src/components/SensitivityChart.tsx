@@ -122,7 +122,7 @@ export function SensitivityChart({ robustness }: { robustness: RobustnessSummary
       <div className="chart__plot">
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          role="img"
+          role="group"
           aria-label={`Chart of how strong something unmeasured would have to be. The effect disappears at ${percent(value)} of both treatment and outcome.`}
         >
           {ticks.map((tick) => (

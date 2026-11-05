@@ -258,6 +258,7 @@ function prepare(request: AnalysisRequest): Prepared {
     const matched = diagnostics.variableBindings.filter((binding) => binding.matched && binding.columnName);
     reproduction = {
       filename: request.dataset.filename ?? dataContext.datasetName ?? "your_data.csv",
+      delimiter: table?.delimiter ?? ",",
       columnOf: Object.fromEntries(matched.map((binding) => [binding.nodeId, binding.columnName!])),
       typeOf: Object.fromEntries(
         matched.map((binding) => [
