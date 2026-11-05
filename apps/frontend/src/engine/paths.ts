@@ -21,10 +21,11 @@ function isColliderAt(dag: Dag, previous: string, node: string, next: string): b
   return dag.hasEdge(previous, node) && dag.hasEdge(next, node);
 }
 
+/** Single-character arrows, because a line can break after the hyphen in "->" and split it in two. */
 export function formatPathString(dag: Dag, nodes: string[]): string {
   const parts = [nodes[0]];
   for (let index = 0; index < nodes.length - 1; index += 1) {
-    parts.push(`${dag.hasEdge(nodes[index], nodes[index + 1]) ? "->" : "<-"} ${nodes[index + 1]}`);
+    parts.push(`${dag.hasEdge(nodes[index], nodes[index + 1]) ? "→" : "←"} ${nodes[index + 1]}`);
   }
   return parts.join(" ");
 }

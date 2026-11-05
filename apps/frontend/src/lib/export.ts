@@ -140,7 +140,7 @@ export function buildMarkdownReport(graph: GraphSpec, analysis: AnalysisResult |
   ];
 
   if (graph.edges.length) {
-    lines.push(...graph.edges.map((edge) => `- ${edge.source} -> ${edge.target}`));
+    lines.push(...graph.edges.map((edge) => `- ${edge.source} → ${edge.target}`));
   } else {
     lines.push("- No edges defined.");
   }
@@ -233,7 +233,7 @@ export function buildMarkdownReport(graph: GraphSpec, analysis: AnalysisResult |
     lines.push("", "### Variable Bindings");
     lines.push(
       ...analysis.dataDiagnostics.variableBindings.map(
-        (binding) => `- ${binding.nodeId} -> ${binding.columnName ?? "unmatched"} (${binding.matchType})`,
+        (binding) => `- ${binding.nodeId} → ${binding.columnName ?? "unmatched"} (${binding.matchType})`,
       ),
     );
     lines.push(...buildCovariateCheckLines(analysis));

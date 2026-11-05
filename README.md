@@ -18,7 +18,7 @@ adjustment set from being valid, it shows what would change, ranked by how far t
 > **education → training** · data disagrees
 >
 > You assume education has no direct effect on training. If it does, this backdoor path stays open:
-> training <- education -> earnings_after. To stay valid you would need to also adjust for education.
+> training ← education → earnings_after. To stay valid you would need to also adjust for education.
 >
 > The estimate would go from 4.630 to 2.882 (95% CI 2.470 to 3.293).
 
