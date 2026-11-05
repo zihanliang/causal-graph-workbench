@@ -7,7 +7,7 @@ export function getExplainableKindLabel(selection: ExplainableSelection | null):
 
   switch (selection.kind) {
     case "node":
-      return "Node";
+      return "Variable";
     case "path":
       return "Path";
     case "adjustment":

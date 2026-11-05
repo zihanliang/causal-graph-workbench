@@ -15,5 +15,34 @@ describe("edge list parser", () => {
 
     expect(graphToEdgeListText(parsed.graph)).toContain("Y");
   });
-});
 
+  test("marks unmeasured variables, and round-trips them through the text", () => {
+    const { graph } = parseEdgeListText("U -> X\nU -> Y\nX -> Y\nU [unobserved]");
+    expect(graph.nodes.find((node) => node.id === "U")!.observed).toBe(false);
+    expect(graph.nodes.find((node) => node.id === "X")!.observed).toBe(true);
+
+    const text = graphToEdgeListText(graph);
+    expect(text).toContain("U [unobserved]");
+    expect(parseEdgeListText(text).graph.nodes.find((node) => node.id === "U")!.observed).toBe(false);
+  });
+
+  test("accepts [latent] as well", () => {
+    expect(parseEdgeListText("U [latent]").graph.nodes[0].observed).toBe(false);
+  });
+
+  test("removing the marker makes a variable measured again, and timing survives editing", () => {
+    const existing = {
+      nodes: [{ id: "Z", label: "Z", x: 5, y: 6, observed: false, timing: "baseline" as const }],
+      treatmentId: null,
+      outcomeId: null,
+    };
+    const node = parseEdgeListText("Z -> X", existing).graph.nodes.find((item) => item.id === "Z")!;
+    expect(node.observed).toBe(true);
+    expect(node.timing).toBe("baseline");
+    expect(node.x).toBe(5);
+  });
+
+  test("still rejects anything else", () => {
+    expect(() => parseEdgeListText("U [secret]")).toThrow(/Unable to parse/);
+  });
+});

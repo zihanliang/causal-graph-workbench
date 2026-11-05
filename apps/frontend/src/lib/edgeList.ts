@@ -3,7 +3,7 @@ import type { GraphEdge, GraphNode, GraphSpec } from "@causal-graph-workbench/sh
 import { layoutGraph } from "./layout";
 
 const EDGE_PATTERN = /^([A-Za-z_][A-Za-z0-9_]*)\s*->\s*([A-Za-z_][A-Za-z0-9_]*)$/;
-const NODE_PATTERN = /^([A-Za-z_][A-Za-z0-9_]*)$/;
+const NODE_PATTERN = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*\[(unobserved|latent)\])?$/;
 
 export interface ParsedEdgeList {
   graph: GraphSpec;
@@ -17,19 +17,20 @@ export function graphToEdgeListText(graph: GraphSpec): string {
     .map((edge) => `${edge.source} -> ${edge.target}`);
 
   const connected = new Set(graph.edges.flatMap((edge) => [edge.source, edge.target]));
-  const standaloneNodeLines = graph.nodes
-    .map((node) => node.id)
-    .filter((nodeId) => !connected.has(nodeId))
+  const nodeLines = graph.nodes
+    .filter((node) => node.observed === false || !connected.has(node.id))
+    .map((node) => (node.observed === false ? `${node.id} [unobserved]` : node.id))
     .sort();
 
-  return [...edgeLines, ...standaloneNodeLines].join("\n");
+  return [...edgeLines, ...nodeLines].join("\n");
 }
 
 export function parseEdgeListText(text: string, existing?: Partial<GraphSpec>): ParsedEdgeList {
   const warnings: string[] = [];
   const nodes = new Map<string, GraphNode>();
   const edges: GraphEdge[] = [];
-  const positions = new Map((existing?.nodes ?? []).map((node) => [node.id, node]));
+  const previous = new Map((existing?.nodes ?? []).map((node) => [node.id, node]));
+  const unobserved = new Set<string>();
 
   const lines = text
     .split(/\r?\n/)
@@ -40,17 +41,25 @@ export function parseEdgeListText(text: string, existing?: Partial<GraphSpec>): 
     const edgeMatch = line.match(EDGE_PATTERN);
     if (edgeMatch) {
       const [, source, target] = edgeMatch;
-      upsertNode(nodes, positions, source);
-      upsertNode(nodes, positions, target);
+      upsertNode(nodes, previous, source);
+      upsertNode(nodes, previous, target);
       edges.push({ id: makeEdgeId(source, target), source, target });
       continue;
     }
     const nodeMatch = line.match(NODE_PATTERN);
     if (nodeMatch) {
-      upsertNode(nodes, positions, nodeMatch[1]);
+      upsertNode(nodes, previous, nodeMatch[1]);
+      if (nodeMatch[2]) {
+        unobserved.add(nodeMatch[1]);
+      }
       continue;
     }
     throw new Error(`Unable to parse line: "${line}"`);
+  }
+
+  // The text is the source of truth for what is measured, so removing "[unobserved]" takes effect.
+  for (const node of nodes.values()) {
+    node.observed = !unobserved.has(node.id);
   }
 
   const graph: GraphSpec = layoutGraph({
@@ -99,18 +108,10 @@ export function makeEdgeId(source: string, target: string): string {
   return `${source}->${target}`;
 }
 
-function upsertNode(
-  nodes: Map<string, GraphNode>,
-  positions: Map<string, Partial<GraphNode>>,
-  nodeId: string,
-): void {
+function upsertNode(nodes: Map<string, GraphNode>, previous: Map<string, GraphNode>, nodeId: string): void {
   if (nodes.has(nodeId)) {
     return;
   }
-  const existing = positions.get(nodeId);
-  nodes.set(
-    nodeId,
-    createNode(nodeId, existing?.x ?? 0, existing?.y ?? 0),
-  );
+  const existing = previous.get(nodeId);
+  nodes.set(nodeId, { ...createNode(nodeId, existing?.x ?? 0, existing?.y ?? 0), timing: existing?.timing ?? null });
 }
-

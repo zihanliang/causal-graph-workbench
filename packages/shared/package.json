@@ -4,8 +4,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./analysis-contract.json": "./analysis-contract.json"
+    ".": "./src/index.ts"
   }
 }
-

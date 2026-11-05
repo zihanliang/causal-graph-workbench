@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
-import { useWorkbenchStore } from "./useWorkbenchStore";
+import { parseProjectSnapshotText } from "../lib/export";
+import { buildProjectSnapshot, useWorkbenchStore } from "./useWorkbenchStore";
 
 describe("workbench store", () => {
   beforeEach(() => {
@@ -23,6 +24,8 @@ describe("workbench store", () => {
       uploadedDataset: null,
       selectedExplainable: null,
       highlightedPathId: null,
+      previewArrow: null,
+      dataContext: {},
     });
   });
 
@@ -62,11 +65,98 @@ describe("workbench store", () => {
     expect(state.graph.treatmentId).toBe("Treatment");
   });
 
+  test("renaming carries the column binding and chosen set along", () => {
+    useWorkbenchStore.setState({ dataContext: { columnBindings: { Z: "age" }, chosenSet: ["Z"] } });
+    useWorkbenchStore.getState().renameNode("Z", "Age");
+    const { dataContext } = useWorkbenchStore.getState();
+    expect(dataContext.columnBindings).toEqual({ Age: "age" });
+    expect(dataContext.chosenSet).toEqual(["Age"]);
+  });
+
+  test("removing a variable drops it from the binding and chosen set", () => {
+    useWorkbenchStore.setState({ dataContext: { columnBindings: { Z: "age" }, chosenSet: ["Z"] } });
+    useWorkbenchStore.getState().removeNode("Z");
+    const { dataContext } = useWorkbenchStore.getState();
+    expect(dataContext.columnBindings).toEqual({});
+    expect(dataContext.chosenSet).toEqual([]);
+  });
+
+  test("marking a variable as not measured shows in the text and leaves the chosen set", () => {
+    useWorkbenchStore.setState({ dataContext: { chosenSet: ["Z"] } });
+    useWorkbenchStore.getState().setNodeObserved("Z", false);
+    const state = useWorkbenchStore.getState();
+    expect(state.graph.nodes.find((node) => node.id === "Z")!.observed).toBe(false);
+    expect(state.textDraft).toContain("Z [unobserved]");
+    expect(state.dataContext.chosenSet).toEqual([]);
+  });
+
+  test("timing is stored on the variable", () => {
+    useWorkbenchStore.getState().setNodeTiming("Z", "baseline");
+    expect(useWorkbenchStore.getState().graph.nodes.find((node) => node.id === "Z")!.timing).toBe("baseline");
+  });
+
+  test.each([
+    ["add", "Z", "Y", ["Z->X", "Z->Y"]],
+    ["add", "X", "Y", ["X->Y", "Z->X", "Z->Y"]],
+    ["remove", "Z", "X", ["Z->Y"]],
+    ["reverse", "Z", "X", ["X->Z", "Z->Y"]],
+  ] as const)("applying %s %s -> %s changes the graph only when asked", (edit, source, target, expected) => {
+    useWorkbenchStore.setState({ previewArrow: { edit, source, target } });
+    if (edit === "add" && source === "Z") {
+      // Already drawn in this fixture, so start from a graph without it.
+      useWorkbenchStore.getState().removeEdge("Z->Y");
+    }
+    const before = useWorkbenchStore.getState().graph.edges.length;
+    expect(before).toBeGreaterThan(0);
+    useWorkbenchStore.getState().applyArrowEdit({ edit, source, target });
+    const state = useWorkbenchStore.getState();
+    expect(state.graph.edges.map((edge) => edge.id).sort()).toEqual([...expected].sort());
+    expect(state.previewArrow).toBeNull();
+  });
+
+  test("unused columns can be added as variables, bound to their original names", () => {
+    useWorkbenchStore.getState().addColumnsAsVariables(["baseline risk (%)", "X"]);
+    const state = useWorkbenchStore.getState();
+    const ids = state.graph.nodes.map((node) => node.id);
+    expect(ids).toContain("baseline_risk_");
+    expect(ids).toContain("X_2");
+    expect(state.dataContext.columnBindings!.baseline_risk_).toBe("baseline risk (%)");
+    expect(state.dataContext.columnBindings!.X_2).toBe("X");
+  });
+
+  test("a saved project keeps measured flags, timing, bindings, the chosen set and the estimand", () => {
+    useWorkbenchStore.getState().setNodeObserved("Z", false);
+    useWorkbenchStore.getState().setNodeTiming("X", "before");
+    useWorkbenchStore.getState().setColumnBinding("Y", "score");
+    useWorkbenchStore.getState().setDataContext({ estimand: "att", chosenSet: ["X"] });
+    const saved = JSON.stringify(buildProjectSnapshot());
+
+    useWorkbenchStore.getState().clearGraph();
+    useWorkbenchStore.getState().hydrateProject(parseProjectSnapshotText(saved));
+
+    const state = useWorkbenchStore.getState();
+    expect(state.graph.nodes.find((node) => node.id === "Z")!.observed).toBe(false);
+    expect(state.graph.nodes.find((node) => node.id === "X")!.timing).toBe("before");
+    expect(state.dataContext.columnBindings).toEqual({ Y: "score" });
+    expect(state.dataContext.estimand).toBe("att");
+    expect(state.dataContext.chosenSet).toEqual(["X"]);
+    expect(state.textDraft).toContain("Z [unobserved]");
+  });
+
+  test("starting a new graph forgets choices that belonged to the old question", () => {
+    useWorkbenchStore.getState().setDataContext({ estimand: "att", chosenSet: ["X"], columnBindings: { Y: "score" } });
+    useWorkbenchStore.getState().clearGraph();
+    const { dataContext } = useWorkbenchStore.getState();
+    expect(dataContext.estimand).toBe("ate");
+    expect(dataContext.chosenSet).toBeNull();
+    expect(dataContext.columnBindings).toEqual({});
+  });
+
   test("clearGraph resets the workspace to a usable empty state", () => {
     useWorkbenchStore.setState({
       analysis: { validation: { canAnalyze: true, issues: [] } } as never,
-      apiError: "stale error",
-      activeTab: "paths",
+      analysisError: "stale error",
+      activeTab: "details",
     });
 
     useWorkbenchStore.getState().clearGraph();
@@ -74,7 +164,7 @@ describe("workbench store", () => {
     const state = useWorkbenchStore.getState();
     expect(state.graph.nodes).toEqual([]);
     expect(state.analysis).toBeNull();
-    expect(state.apiError).toBeNull();
-    expect(state.activeTab).toBe("summary");
+    expect(state.analysisError).toBeNull();
+    expect(state.activeTab).toBe("assumptions");
   });
 });

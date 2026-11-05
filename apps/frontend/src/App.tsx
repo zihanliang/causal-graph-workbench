@@ -1,74 +1,84 @@
-import { useEffect, useRef } from "react";
+import type { GraphSpec } from "@causal-graph-workbench/shared";
+import { useEffect, useMemo, useRef } from "react";
 
-import { analyzeGraph, fetchTemplates } from "./api/client";
-import { BuilderSidebar } from "./components/BuilderSidebar";
 import { CanvasWorkspace } from "./components/CanvasWorkspace";
-import { ExplainPanel } from "./components/ExplainPanel";
-import { ResultsPanel } from "./components/ResultsPanel";
+import { StartScreen } from "./components/StartScreen";
+import { StepPanel } from "./components/StepPanel";
 import { TopBar } from "./components/TopBar";
-import { fallbackTemplates } from "./lib/fallbackTemplates";
+import { analyzeGraph } from "./engine/client";
 import { useWorkbenchStore } from "./store/useWorkbenchStore";
 
+const ANALYSIS_DELAY_MS = 120;
+
+/** Everything analysis depends on. Moving a node on the canvas does not change it. */
+function structuralKey(graph: GraphSpec): string {
+  return JSON.stringify({
+    nodes: graph.nodes.map((node) => [node.id, node.observed !== false, node.timing ?? null]),
+    edges: graph.edges.map((edge) => [edge.source, edge.target]),
+    treatment: graph.treatmentId,
+    outcome: graph.outcomeId,
+  });
+}
+
 export default function App() {
+  const view = useWorkbenchStore((state) => state.view);
   const graph = useWorkbenchStore((state) => state.graph);
   const dataContext = useWorkbenchStore((state) => state.dataContext);
   const analysis = useWorkbenchStore((state) => state.analysis);
   const uploadedDataset = useWorkbenchStore((state) => state.uploadedDataset);
   const isAnalyzing = useWorkbenchStore((state) => state.isAnalyzing);
-  const apiError = useWorkbenchStore((state) => state.apiError);
+  const analysisError = useWorkbenchStore((state) => state.analysisError);
   const setAnalysis = useWorkbenchStore((state) => state.setAnalysis);
-  const setTemplates = useWorkbenchStore((state) => state.setTemplates);
   const setIsAnalyzing = useWorkbenchStore((state) => state.setIsAnalyzing);
-  const setApiError = useWorkbenchStore((state) => state.setApiError);
+  const setAnalysisError = useWorkbenchStore((state) => state.setAnalysisError);
   const graphShellRef = useRef<HTMLDivElement>(null);
+  const analysisKey = useMemo(() => structuralKey(graph), [graph]);
 
   useEffect(() => {
-    fetchTemplates()
-      .then((templates) => setTemplates(templates))
-      .catch(() => setTemplates(fallbackTemplates));
-  }, [setTemplates]);
-
-  useEffect(() => {
-    const controller = new AbortController();
+    let isStale = false;
     const timeout = window.setTimeout(async () => {
       try {
         setIsAnalyzing(true);
-        setApiError(null);
-        const result = await analyzeGraph({ graph, dataContext, dataset: uploadedDataset });
-        if (!controller.signal.aborted) {
+        setAnalysisError(null);
+        const latestGraph = useWorkbenchStore.getState().graph;
+        const result = await analyzeGraph({ graph: latestGraph, dataContext, dataset: uploadedDataset }, (progress) => {
+          if (!isStale) {
+            setAnalysis(progress);
+          }
+        });
+        if (!isStale) {
           setAnalysis(result);
         }
       } catch (error) {
-        if (!controller.signal.aborted) {
+        if (!isStale) {
           setAnalysis(null);
-          setApiError(error instanceof Error ? error.message : "Backend request failed.");
+          setAnalysisError(error instanceof Error ? error.message : "The analysis could not be completed.");
         }
       } finally {
-        if (!controller.signal.aborted) {
+        if (!isStale) {
           setIsAnalyzing(false);
         }
       }
-    }, 350);
+    }, ANALYSIS_DELAY_MS);
 
     return () => {
-      controller.abort();
+      isStale = true;
       window.clearTimeout(timeout);
     };
-  }, [dataContext, graph, uploadedDataset, setAnalysis, setApiError, setIsAnalyzing]);
+  }, [analysisKey, dataContext, uploadedDataset, setAnalysis, setAnalysisError, setIsAnalyzing]);
 
   return (
     <div className="app-shell">
-      <TopBar graph={graph} analysis={analysis} graphShellRef={graphShellRef} isAnalyzing={isAnalyzing} apiError={apiError} />
+      <TopBar graph={graph} analysis={analysis} graphShellRef={graphShellRef} isAnalyzing={isAnalyzing} analysisError={analysisError} />
 
-      <main className="workspace">
-        <BuilderSidebar />
-        <section className="canvas-panel">
+      {view === "start" ? (
+        <StartScreen />
+      ) : (
+        <main className="workspace">
           <CanvasWorkspace graph={graph} analysis={analysis} graphShellRef={graphShellRef} />
-        </section>
-        <ResultsPanel analysis={analysis} />
-      </main>
-
-      <ExplainPanel analysis={analysis} />
+          <StepPanel analysis={analysis} graph={graph} />
+        </main>
+      )}
     </div>
   );
 }

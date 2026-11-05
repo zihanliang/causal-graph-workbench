@@ -13,7 +13,55 @@ export interface ExampleProject {
   badge?: string;
 }
 
+/** Simulated by tools/verification/generate_demo_data.py, where the true graph and effect are written out. */
+const TRAINING_EDGES: [string, string][] = [
+  ["age", "prior_earnings"],
+  ["education", "prior_earnings"],
+  ["age", "training"],
+  ["prior_earnings", "training"],
+  ["age", "earnings_after"],
+  ["education", "earnings_after"],
+  ["prior_earnings", "earnings_after"],
+  ["training", "skills_after"],
+  ["education", "skills_after"],
+  ["skills_after", "earnings_after"],
+  ["training", "earnings_after"],
+  ["training", "promoted"],
+  ["earnings_after", "promoted"],
+];
+
 export const exampleProjects: ExampleProject[] = [
+  {
+    id: "training-program",
+    name: "Training program: one arrow is wrong",
+    description:
+      "Simulated study of 2,000 workers where the true effect is 2.8. The graph leaves out one real arrow. Open Assumptions to see the app find it.",
+    badge: "data-enhanced",
+    graph: {
+      nodes: [
+        { id: "age", label: "age", x: 40, y: 30, observed: true, timing: "baseline" },
+        { id: "education", label: "education", x: 40, y: 400, observed: true, timing: "baseline" },
+        { id: "prior_earnings", label: "prior_earnings", x: 125, y: 156, observed: true, timing: "before" },
+        { id: "training", label: "training", x: 410, y: 30, observed: true },
+        { id: "skills_after", label: "skills_after", x: 600, y: 140, observed: true, timing: "after" },
+        { id: "earnings_after", label: "earnings_after", x: 640, y: 400, observed: true },
+        { id: "promoted", label: "promoted", x: 800, y: 30, observed: true, timing: "after" },
+      ],
+      edges: TRAINING_EDGES.map(([source, target]) => ({ id: `${source}->${target}`, source, target })),
+      treatmentId: "training",
+      outcomeId: "earnings_after",
+    },
+    dataContext: {
+      hasData: true,
+      treatmentType: "unknown",
+      outcomeType: "unknown",
+      datasetName: "training-program-study.csv",
+      highDimensional: false,
+      columnBindings: {},
+    },
+    datasetUrl: publicAssetPath("demo-data/training-program-study.csv"),
+    datasetFilename: "training-program-study.csv",
+  },
   {
     id: "simple-confounding-demo",
     name: "Simple confounding + demo CSV",
@@ -84,7 +132,7 @@ export const exampleProjects: ExampleProject[] = [
     graph: {
       nodes: [
         { id: "X", label: "X", x: 120, y: 140 },
-        { id: "M", label: "M", x: 320, y: 140 },
+        { id: "M", label: "M", x: 320, y: 260 },
         { id: "Y", label: "Y", x: 520, y: 140 },
         { id: "Z", label: "Z", x: 320, y: 20 },
       ],

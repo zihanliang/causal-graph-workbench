@@ -1,20 +1,39 @@
 import type {
   AnalysisResult,
+  AssumptionEdit,
   DataContext,
   ExplainableSelection,
+  GraphSpec,
   GraphTemplate,
   UploadedDataset,
+  VariableTiming,
 } from "@causal-graph-workbench/shared";
 import { create } from "zustand";
 
 import { createNode, createNodeId, graphToEdgeListText, makeEdgeId, parseEdgeListText } from "../lib/edgeList";
-import { fallbackTemplates } from "../lib/fallbackTemplates";
+import { graphTemplates } from "../lib/graphTemplates";
 import { layoutGraph } from "../lib/layout";
 import type { ProjectSnapshot } from "../lib/projectSnapshot";
 
-export type PanelTab = "summary" | "paths" | "estimate" | "checks";
+export type AppView = "start" | "workspace";
+export type WorkStep = "graph" | "data" | "result";
+export type PanelTab = "assumptions" | "sets" | "code" | "details";
+
+/** An arrow the user is considering, shown on the canvas without changing the graph. */
+export interface ArrowPreview {
+  edit: AssumptionEdit;
+  source: string;
+  target: string;
+}
 
 export interface WorkbenchStore {
+  view: AppView;
+  step: WorkStep;
+  /** True after leaving the workspace, so the start screen can offer a way back to it. */
+  canResume: boolean;
+  /** Bumped by "Auto layout", so the canvas re-fits even though the same variables are on it. */
+  layoutVersion: number;
+  graphTextOpen: boolean;
   graph: GraphTemplate["graph"];
   dataContext: DataContext;
   templates: GraphTemplate[];
@@ -24,10 +43,13 @@ export interface WorkbenchStore {
   textDraft: string;
   parseError: string | null;
   isAnalyzing: boolean;
-  apiError: string | null;
+  analysisError: string | null;
   selectedExplainable: ExplainableSelection | null;
   highlightedPathId: string | null;
-  setTemplates: (templates: GraphTemplate[]) => void;
+  previewArrow: ArrowPreview | null;
+  setView: (view: AppView) => void;
+  setStep: (step: WorkStep) => void;
+  setGraphTextOpen: (open: boolean) => void;
   applyTemplate: (templateId: string) => void;
   setTextDraft: (value: string) => void;
   importFromText: () => void;
@@ -37,6 +59,11 @@ export interface WorkbenchStore {
   connectNodes: (source: string, target: string) => void;
   removeNode: (nodeId: string) => void;
   removeEdge: (edgeId: string) => void;
+  applyArrowEdit: (arrow: ArrowPreview) => void;
+  setNodeObserved: (nodeId: string, observed: boolean) => void;
+  setNodeTiming: (nodeId: string, timing: VariableTiming | null) => void;
+  setColumnBinding: (nodeId: string, column: string) => void;
+  addColumnsAsVariables: (columns: string[]) => void;
   relayoutGraph: () => void;
   clearGraph: () => void;
   setUploadedDataset: (dataset: UploadedDataset | null) => void;
@@ -45,16 +72,40 @@ export interface WorkbenchStore {
   setDataContext: (partial: Partial<DataContext>) => void;
   setAnalysis: (analysis: AnalysisResult | null) => void;
   setIsAnalyzing: (value: boolean) => void;
-  setApiError: (value: string | null) => void;
+  setAnalysisError: (value: string | null) => void;
   setActiveTab: (tab: PanelTab) => void;
   setSelectedExplainable: (selection: ExplainableSelection | null) => void;
   setHighlightedPathId: (pathId: string | null) => void;
+  setPreviewArrow: (arrow: ArrowPreview | null) => void;
   hydrateProject: (snapshot: ProjectSnapshot) => void;
 }
 
-const initialTemplate = fallbackTemplates[0].graph;
+const initialTemplate = graphTemplates[0].graph;
+
+/** A place for a new variable that does not sit on top of one already on the canvas. */
+function nextFreeSpot(graph: GraphSpec): [number, number] {
+  const COLUMNS = 3;
+  for (let slot = 0; ; slot += 1) {
+    const x = 100 + (slot % COLUMNS) * 220;
+    const y = 100 + Math.floor(slot / COLUMNS) * 120;
+    if (!graph.nodes.some((node) => Math.abs(node.x - x) < 160 && Math.abs(node.y - y) < 80)) {
+      return [x, y];
+    }
+  }
+}
+
+/** A chosen set and estimand belong to one question, so a new graph starts without them. */
+const FRESH_CHOICES = { columnBindings: {}, chosenSet: null, estimand: "ate" } as const;
 
 export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
+  view: "start",
+  step: "graph",
+  canResume: false,
+  layoutVersion: 0,
+  graphTextOpen: false,
+  setView: (view) => set({ view, canResume: get().canResume || (view === "start" && get().view === "workspace") }),
+  setStep: (step) => set({ step }),
+  setGraphTextOpen: (graphTextOpen) => set({ graphTextOpen }),
   graph: initialTemplate,
   dataContext: {
     hasData: false,
@@ -64,35 +115,38 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     highDimensional: false,
     columnBindings: {},
   },
-  templates: fallbackTemplates,
+  templates: graphTemplates,
   analysis: null,
   uploadedDataset: null,
-  activeTab: "summary",
+  activeTab: "assumptions",
   textDraft: graphToEdgeListText(initialTemplate),
   parseError: null,
   isAnalyzing: false,
-  apiError: null,
+  analysisError: null,
   selectedExplainable: null,
   highlightedPathId: null,
-  setTemplates: (templates) => set({ templates: templates.length ? templates : fallbackTemplates }),
+  previewArrow: null,
   applyTemplate: (templateId) => {
-    const template = get().templates.find((item) => item.id === templateId) ?? fallbackTemplates[0];
+    const template = get().templates.find((item) => item.id === templateId) ?? graphTemplates[0];
     set({
       graph: layoutGraph(template.graph),
       textDraft: graphToEdgeListText(template.graph),
       parseError: null,
       analysis: null,
-      apiError: null,
+      analysisError: null,
       uploadedDataset: null,
       dataContext: {
         ...get().dataContext,
+        ...FRESH_CHOICES,
         hasData: false,
         datasetName: null,
-        columnBindings: {},
       },
       selectedExplainable: null,
       highlightedPathId: null,
-      activeTab: "summary",
+      previewArrow: null,
+      activeTab: "assumptions",
+      view: "workspace",
+      step: "graph",
     });
   },
   setTextDraft: (value) => {
@@ -126,7 +180,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     const nodeId = createNodeId(label, used);
     const nextGraph = {
       ...get().graph,
-      nodes: [...get().graph.nodes, createNode(nodeId, 160 + get().graph.nodes.length * 24, 120 + get().graph.nodes.length * 24)],
+      nodes: [...get().graph.nodes, createNode(nodeId, ...nextFreeSpot(get().graph))],
     };
     set({ graph: nextGraph, textDraft: graphToEdgeListText(nextGraph) });
   },
@@ -156,9 +210,20 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       treatmentId: get().graph.treatmentId === nodeId ? nextId : get().graph.treatmentId,
       outcomeId: get().graph.outcomeId === nodeId ? nextId : get().graph.outcomeId,
     };
+    const { dataContext } = get();
+    const bindings = { ...dataContext.columnBindings };
+    if (nodeId in bindings) {
+      bindings[nextId] = bindings[nodeId];
+      delete bindings[nodeId];
+    }
     set({
       graph: nextGraph,
       textDraft: graphToEdgeListText(nextGraph),
+      dataContext: {
+        ...dataContext,
+        columnBindings: bindings,
+        chosenSet: dataContext.chosenSet?.map((node) => (node === nodeId ? nextId : node)) ?? null,
+      },
       selectedExplainable:
         selectedExplainable?.kind === "node" && selectedExplainable.id === nodeId
           ? { kind: "node", id: nextId }
@@ -194,9 +259,17 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       treatmentId: get().graph.treatmentId === nodeId ? null : get().graph.treatmentId,
       outcomeId: get().graph.outcomeId === nodeId ? null : get().graph.outcomeId,
     };
+    const { dataContext } = get();
+    const bindings = { ...dataContext.columnBindings };
+    delete bindings[nodeId];
     set({
       graph: nextGraph,
       textDraft: graphToEdgeListText(nextGraph),
+      dataContext: {
+        ...dataContext,
+        columnBindings: bindings,
+        chosenSet: dataContext.chosenSet?.filter((node) => node !== nodeId) ?? null,
+      },
       selectedExplainable: get().selectedExplainable?.id === nodeId ? null : get().selectedExplainable,
     });
   },
@@ -207,30 +280,74 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     };
     set({ graph: nextGraph, textDraft: graphToEdgeListText(nextGraph) });
   },
+  applyArrowEdit: ({ edit, source, target }) => {
+    const { graph } = get();
+    const without = graph.edges.filter((edge) => !(edge.source === source && edge.target === target));
+    const edges =
+      edit === "remove"
+        ? without
+        : edit === "reverse"
+          ? [...without, { id: makeEdgeId(target, source), source: target, target: source }]
+          : [...graph.edges, { id: makeEdgeId(source, target), source, target }];
+    const nextGraph: GraphSpec = { ...graph, edges };
+    set({ graph: nextGraph, textDraft: graphToEdgeListText(nextGraph), previewArrow: null });
+  },
+  setNodeObserved: (nodeId, observed) => {
+    const { graph, dataContext } = get();
+    const nextGraph = { ...graph, nodes: graph.nodes.map((node) => (node.id === nodeId ? { ...node, observed } : node)) };
+    set({
+      graph: nextGraph,
+      textDraft: graphToEdgeListText(nextGraph),
+      dataContext: observed ? dataContext : { ...dataContext, chosenSet: dataContext.chosenSet?.filter((node) => node !== nodeId) ?? null },
+    });
+  },
+  setNodeTiming: (nodeId, timing) => {
+    const { graph } = get();
+    set({ graph: { ...graph, nodes: graph.nodes.map((node) => (node.id === nodeId ? { ...node, timing } : node)) } });
+  },
+  setColumnBinding: (nodeId, column) => {
+    const { dataContext } = get();
+    set({ dataContext: { ...dataContext, columnBindings: { ...dataContext.columnBindings, [nodeId]: column } } });
+  },
+  addColumnsAsVariables: (columns) => {
+    const { graph, dataContext } = get();
+    const used = new Set(graph.nodes.map((node) => node.id));
+    const bindings = { ...dataContext.columnBindings };
+    const added: GraphSpec["nodes"] = [];
+    for (const column of columns) {
+      const nodeId = createNodeId(column, used);
+      used.add(nodeId);
+      bindings[nodeId] = column;
+      added.push(createNode(nodeId, ...nextFreeSpot({ ...graph, nodes: [...graph.nodes, ...added] })));
+    }
+    const nextGraph = { ...graph, nodes: [...graph.nodes, ...added] };
+    set({ graph: nextGraph, textDraft: graphToEdgeListText(nextGraph), dataContext: { ...dataContext, columnBindings: bindings } });
+  },
   relayoutGraph: () => {
     const nextGraph = layoutGraph({
       ...get().graph,
       nodes: get().graph.nodes.map((node) => ({ ...node, x: 0, y: 0 })),
     });
-    set({ graph: nextGraph, textDraft: graphToEdgeListText(nextGraph) });
+    set({ graph: nextGraph, textDraft: graphToEdgeListText(nextGraph), layoutVersion: get().layoutVersion + 1 });
   },
   clearGraph: () =>
     set({
       graph: { nodes: [], edges: [], treatmentId: null, outcomeId: null },
       analysis: null,
-      apiError: null,
-      activeTab: "summary",
+      analysisError: null,
+      activeTab: "assumptions",
       uploadedDataset: null,
       dataContext: {
         ...get().dataContext,
+        ...FRESH_CHOICES,
         hasData: false,
         datasetName: null,
-        columnBindings: {},
       },
       textDraft: "",
       parseError: null,
       selectedExplainable: null,
       highlightedPathId: null,
+      previewArrow: null,
     }),
   setUploadedDataset: (dataset) =>
     set({
@@ -246,22 +363,26 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   setDataContext: (partial) => set({ dataContext: { ...get().dataContext, ...partial } }),
   setAnalysis: (analysis) => set({ analysis }),
   setIsAnalyzing: (value) => set({ isAnalyzing: value }),
-  setApiError: (value) => set({ apiError: value }),
+  setAnalysisError: (value) => set({ analysisError: value }),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSelectedExplainable: (selection) => set({ selectedExplainable: selection }),
   setHighlightedPathId: (pathId) => set({ highlightedPathId: pathId }),
+  setPreviewArrow: (arrow) => set({ previewArrow: arrow }),
   hydrateProject: (snapshot) =>
     set({
       graph: layoutGraph(snapshot.graph),
       dataContext: snapshot.dataContext,
       uploadedDataset: snapshot.uploadedDataset,
       analysis: null,
-      apiError: null,
-      activeTab: "summary",
+      analysisError: null,
+      activeTab: "assumptions",
+      view: "workspace",
+      step: snapshot.uploadedDataset ? "result" : "graph",
       textDraft: graphToEdgeListText(snapshot.graph),
       parseError: null,
       selectedExplainable: null,
       highlightedPathId: null,
+      previewArrow: null,
     }),
 }));
 

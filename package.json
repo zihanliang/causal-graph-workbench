@@ -1,20 +1,20 @@
 {
   "name": "causal-graph-workbench",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "workspaces": [
     "apps/frontend",
     "packages/shared"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev --workspace @causal-graph-workbench/frontend\" \"python3 -m uvicorn apps.backend.app.main:app --reload --app-dir . --port 8000\"",
-    "dev:frontend": "npm run dev --workspace @causal-graph-workbench/frontend",
-    "dev:backend": "python3 -m uvicorn apps.backend.app.main:app --reload --app-dir . --port 8000",
+    "dev": "npm run dev --workspace @causal-graph-workbench/frontend",
     "typecheck": "npm run typecheck --workspace @causal-graph-workbench/frontend",
     "build": "npm run build --workspace @causal-graph-workbench/frontend",
-    "test": "npm run test --workspace @causal-graph-workbench/frontend && python3 -m pytest apps/backend/tests"
-  },
-  "devDependencies": {
-    "concurrently": "^9.1.2"
+    "test": "npm run test --workspace @causal-graph-workbench/frontend",
+    "verify:golden": "python3 tools/verification/generate_golden.py",
+    "verify:sensitivity": "python3 tools/verification/generate_sensitivity_golden.py",
+    "verify:code": "python3 tools/verification/verify_generated_code.py",
+    "verify:lalonde": "python3 tools/verification/verify_lalonde.py",
+    "verify:calibration": "vite-node tools/verification/verify_calibration.ts"
   }
 }
