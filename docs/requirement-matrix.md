@@ -1,5 +1,7 @@
 # Requirement Matrix
 
+> **Historical record.** This describes the original FastAPI implementation as of March 2026 and its source requirements, which are not in this repository. The analysis engine has since moved into the browser (`apps/frontend/src/engine`), and several behaviours marked here as implemented were found to be wrong and have been corrected. See `README.md` for the current state.
+
 This matrix is derived from `说明.md` and is the working implementation-tracking view for the current codebase.
 
 Status values:

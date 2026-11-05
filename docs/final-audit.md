@@ -1,5 +1,7 @@
 # Implementation Audit
 
+> **Historical record.** This describes the original FastAPI implementation as of March 2026 and its source requirements, which are not in this repository. The analysis engine has since moved into the browser (`apps/frontend/src/engine`), and several behaviours marked here as implemented were found to be wrong and have been corrected. See `README.md` for the current state.
+
 This audit is derived directly from `说明.md` and records the current implementation status for each requirement.
 
 Status vocabulary:

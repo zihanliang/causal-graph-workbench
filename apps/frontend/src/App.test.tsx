@@ -1,36 +1,51 @@
-import { act, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import App from "./App";
 import { useWorkbenchStore } from "./store/useWorkbenchStore";
 
 const analyzeGraph = vi.fn();
-const fetchTemplates = vi.fn();
 
-vi.mock("./api/client", () => ({
+vi.mock("./engine/client", () => ({
   analyzeGraph: (...args: unknown[]) => analyzeGraph(...args),
-  fetchTemplates: (...args: unknown[]) => fetchTemplates(...args),
 }));
 
 vi.mock("./components/TopBar", () => ({
   TopBar: () => <div>topbar</div>,
 }));
 
-vi.mock("./components/BuilderSidebar", () => ({
-  BuilderSidebar: () => <div>builder</div>,
+vi.mock("./components/StartScreen", () => ({
+  StartScreen: () => <div>start</div>,
 }));
 
 vi.mock("./components/CanvasWorkspace", () => ({
   CanvasWorkspace: () => <div>canvas</div>,
 }));
 
-vi.mock("./components/ResultsPanel", () => ({
-  ResultsPanel: () => <div>results</div>,
+vi.mock("./components/StepPanel", () => ({
+  StepPanel: () => <div>panel</div>,
 }));
 
-vi.mock("./components/ExplainPanel", () => ({
-  ExplainPanel: () => <div>explain</div>,
-}));
+const emptyResult = {
+  validation: { canAnalyze: true, issues: [] },
+  graphStats: { nodeCount: 3, edgeCount: 2, openBackdoorPathCount: 0, directedPathCount: 1 },
+  paths: [],
+  nodeRoles: [],
+  adjustmentSets: [],
+  recommendedAdjustmentSet: [],
+  forbiddenVariables: [],
+  cautionVariables: [],
+  limits: { pathsTruncated: false, adjustmentSetsTruncated: false },
+  baselineSet: null,
+  effect: null,
+  sensitivity: null,
+  audit: null,
+  reproduction: null,
+  assumptions: [],
+  estimatorRecommendations: [],
+  codeSnippets: [],
+  dataDiagnostics: null,
+};
 
 describe("App analysis sync", () => {
   beforeEach(() => {
@@ -39,21 +54,7 @@ describe("App analysis sync", () => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers();
     analyzeGraph.mockReset();
-    fetchTemplates.mockReset();
-    fetchTemplates.mockResolvedValue([]);
-    analyzeGraph.mockResolvedValue({
-      validation: { canAnalyze: true, issues: [] },
-      graphStats: { nodeCount: 3, edgeCount: 2, openBackdoorPathCount: 0, directedPathCount: 1 },
-      paths: [],
-      nodeRoles: [],
-      adjustmentSets: [],
-      recommendedAdjustmentSet: [],
-      forbiddenVariables: [],
-      assumptions: [],
-      estimatorRecommendations: [],
-      codeSnippets: [],
-      dataDiagnostics: null,
-    });
+    analyzeGraph.mockResolvedValue(emptyResult);
 
     useWorkbenchStore.setState({
       graph: {
@@ -77,29 +78,32 @@ describe("App analysis sync", () => {
         highDimensional: false,
         columnBindings: {},
       },
-      templates: [],
       analysis: null,
       uploadedDataset: null,
-      activeTab: "summary",
+      activeTab: "assumptions",
       textDraft: "Z -> X\nX -> Y",
       parseError: null,
       isAnalyzing: false,
-      apiError: null,
+      analysisError: null,
       selectedExplainable: null,
       highlightedPathId: null,
     });
   });
 
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
   });
 
-  test("graph changes trigger a fresh backend analysis request", async () => {
-    render(<App />);
-
+  async function settle() {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
+  }
+
+  test("graph changes trigger a fresh analysis", async () => {
+    render(<App />);
+    await settle();
 
     expect(analyzeGraph).toHaveBeenCalledTimes(1);
     expect(analyzeGraph.mock.calls[0][0].graph.nodes).toHaveLength(3);
@@ -107,12 +111,52 @@ describe("App analysis sync", () => {
     act(() => {
       useWorkbenchStore.getState().addNode("W");
     });
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(400);
-    });
+    await settle();
 
     expect(analyzeGraph).toHaveBeenCalledTimes(2);
     expect(analyzeGraph.mock.calls[1][0].graph.nodes).toHaveLength(4);
+  });
+
+  test("dragging a node does not rerun the analysis", async () => {
+    render(<App />);
+    await settle();
+    expect(analyzeGraph).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useWorkbenchStore.getState().updateNodePosition("X", 300, 300);
+    });
+    await settle();
+
+    expect(analyzeGraph).toHaveBeenCalledTimes(1);
+  });
+
+  test("progress is shown while the analysis is still running", async () => {
+    const partial = { ...emptyResult, graphStats: { ...emptyResult.graphStats, nodeCount: 99 } };
+    analyzeGraph.mockImplementation((_request, onProgress) => {
+      onProgress(partial);
+      return new Promise(() => {});
+    });
+    render(<App />);
+    await settle();
+    expect(useWorkbenchStore.getState().analysis?.graphStats.nodeCount).toBe(99);
+    expect(useWorkbenchStore.getState().isAnalyzing).toBe(true);
+  });
+
+  test("marking when a variable is fixed reruns the analysis", async () => {
+    render(<App />);
+    await settle();
+    act(() => {
+      useWorkbenchStore.getState().setNodeTiming("Z", "baseline");
+    });
+    await settle();
+    expect(analyzeGraph).toHaveBeenCalledTimes(2);
+  });
+
+  test("an engine failure is shown as an error, not silently dropped", async () => {
+    analyzeGraph.mockRejectedValue(new Error("bad input"));
+    render(<App />);
+    await settle();
+    expect(useWorkbenchStore.getState().analysisError).toBe("bad input");
+    expect(useWorkbenchStore.getState().analysis).toBeNull();
   });
 });

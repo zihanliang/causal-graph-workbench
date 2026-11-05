@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { joinApiBase, joinBasePath } from "./urls";
+import { joinBasePath } from "./urls";
 
 describe("deployment URL helpers", () => {
   test("joins a GitHub Pages base path to public assets", () => {
@@ -12,22 +12,6 @@ describe("deployment URL helpers", () => {
   test("normalizes a base path without leading or trailing slashes", () => {
     expect(joinBasePath("causal-graph-workbench", "/demo-projects/simple-confounding-demo.json")).toBe(
       "/causal-graph-workbench/demo-projects/simple-confounding-demo.json",
-    );
-  });
-
-  test("defaults API requests to the local /api prefix", () => {
-    expect(joinApiBase(undefined, "analyze")).toBe("/api/analyze");
-  });
-
-  test("accepts a Render service origin and appends the fixed /api prefix", () => {
-    expect(joinApiBase("https://causal-analysis-workbench.onrender.com", "/templates")).toBe(
-      "https://causal-analysis-workbench.onrender.com/api/templates",
-    );
-  });
-
-  test("supports an absolute Render API base URL", () => {
-    expect(joinApiBase("https://causal-analysis-workbench.onrender.com/api/", "/templates")).toBe(
-      "https://causal-analysis-workbench.onrender.com/api/templates",
     );
   });
 });

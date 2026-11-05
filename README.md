@@ -1,239 +1,201 @@
 # Causal Graph Workbench
 
-Rule-based DAG workbench for user-specified causal graphs, focused on backdoor adjustment.
+Most causal analyses rest on arrows nobody tested. Draw the causal graph you believe, add your data, and see which variables to
+adjust for, the estimated effect, and which assumptions your conclusion actually depends on.
+
+Everything runs in your browser. There is no server, so a CSV you open here is never uploaded.
 
 The tool does not verify the DAG is true. It only reasons conditionally on the DAG provided by the user.
 
-## Product Boundary
+## What you get
 
-This project is intentionally scoped as a focused **DAG-based identification and estimation setup workbench**.
+**The estimate.** A doubly robust effect with a 95% confidence interval, computed in the browser. The generated script reproduces
+the same number from your file.
 
-### Supported
+**The arrows it depends on.** The app checks every way your graph could be wrong by one arrow. For each error that would stop your
+adjustment set from being valid, it shows what would change, ranked by how far the estimate would move:
 
-- DAG text input, visual editing, and example/template loading
-- Explicit treatment/outcome selection
-- Graph validation with error / warning / info states
-- Path analysis with structured open/blocked explanations
-- Relative node role tagging
-- Valid and minimal backdoor adjustment sets
-- Recommended adjustment set and forbidden-variable guidance
-- Assumptions panel
-- Estimator recommendation
-- Structured code generation for Python / statsmodels, Python / DoWhy, and R / lm-glm
-- Explain panel
-- CSV-enhanced diagnostics
-- Export / copy / save-load project flows
+> **education → training** · data disagrees
+>
+> You assume education has no direct effect on training. If it does, this backdoor path stays open:
+> training <- education -> earnings_after. To stay valid you would need to also adjust for education.
+>
+> The estimate would go from 4.630 to 2.882 (95% CI 2.470 to 3.293).
 
-### Explicitly Not Supported
+That example is built in: **Training program: one arrow is wrong** is simulated data where the true effect is 2.8.
 
-- Causal discovery
-- Instrumental variables
-- Frontdoor criterion
-- Mediation decomposition
-- Selection diagrams
-- Transportability
-- Longitudinal g-methods
-- Dynamic treatment regimes
-- Policy learning
-- Time-varying confounding
-- Automatic validation that the user DAG is true
+**What the same data says under other choices.** No adjustment gives 4.88 there, and adjusting for everything measured gives 0.27.
+You can test the set you actually used and see whether it is valid, and if not, why.
 
-## Project Structure
+**How strong something unmeasured would have to be.** No test can see a confounder you did not measure, so the app says what it would
+take: in that example, something would have to explain 37.8% of what the adjustment leaves unexplained in both treatment and outcome to
+explain away the effect. A chart places the variables you did measure on the same scale, and the E-value is alongside.
 
-```text
-apps/
-  backend/
-    app/
-      api/           FastAPI routes
-      core/          Validation, path analysis, adjustment, estimators, codegen, diagnostics
-      models/        Pydantic schemas
-      services/      Request orchestration and templates
-    tests/           Backend unit tests
-  frontend/
-    public/          Demo CSV and sample project JSON
-    src/
-      api/           Frontend API client
-      components/    Builder, canvas, panels, explain drawer, top bar
-      lib/           Parser, export, example projects, layout helpers
-      store/         Zustand single-source-of-truth state
-      styles/        Product UI styling
-packages/
-  shared/            Shared TypeScript types and JSON analysis contract
-docs/
-  requirement-matrix.md
-  final-audit.md
-说明.md              Original requirements source
-```
+**A methods section, and a script.** The Write-up tab drafts the methods text from what was actually done, with its references, and leaves
+the reasons you believe the graph for you to add. One Python script recomputes every number on the page from your file and checks them
+against what the page showed, so a reviewer can run it and see.
 
-## Tech Stack
+**Also:** path-by-path explanations of what is open and blocked, variable roles, every minimal adjustment set, balance and overlap
+checks on the variables you adjust for, code for statsmodels, DoWhy, R, weighting, matching and AIPW, and exports to Markdown, PDF, SVG
+and PNG.
 
-- Frontend: React, TypeScript, Vite, React Flow, Zustand
-- Backend: FastAPI, Python, networkx
-- Shared contract: `packages/shared`
+## What it cannot tell you
 
-## Install
+These limits come from testing the app on simulated data where the truth is known (see [How results are checked](#how-results-are-checked)):
 
-From the repo root:
+- **Something unmeasured that affects both treatment and outcome is invisible to every test here.** In simulation, the estimate's
+  interval never contained the truth in this situation. The app can still flag a conflict there, and following that suggestion made
+  the estimate worse in 51 of 55 cases and better in none. So it never changes your graph by itself, and a conflict always means
+  either a missing arrow or something unmeasured.
+- **No conflict does not mean the graph is right.** A harmful missing arrow is detected 100% of the time with strong effects and 2,000
+  rows, about 70% with medium effects and 500 rows, and under 10% with weak effects and 200 rows. There is no "passed" state.
+- **Only single-arrow errors are checked.** Graphs that are wrong in several places at once can behave differently.
+- **How strong is a measure, not a verdict.** The robustness value and E-value say how strong something unmeasured would have to be, not
+  whether it exists, and they consider one confounder at a time. Comparing it with a measured variable is a guide to size, not a limit: in
+  simulation the true bias of a variable that strong ran from about 0.7 to 1.4 times the figure shown.
+- **Not covered:** causal discovery, instrumental variables, frontdoor identification, mediation decomposition, selection diagrams,
+  transportability, and time-varying treatments.
+
+The graph is your assumption, and every result here is conditional on it.
+
+## Run it locally
 
 ```bash
 npm install
-python3 -m pip install -e 'apps/backend[dev]'
-```
-
-## Start
-
-### Start frontend and backend together
-
-```bash
 npm run dev
 ```
 
-### Or start them separately
+Then open `http://127.0.0.1:5173` and choose **See a worked example**.
 
-Frontend:
+To use your own data, choose **Draw my own graph** and work through the three steps at the top of the page:
 
-```bash
-npm run dev:frontend
-```
+1. **Graph:** add variables, draw an arrow for each direct cause, and pick the treatment and outcome. Open a variable to mark it as not
+   measured, or to say when it is fixed: that rules out arrows that would run backwards in time, and leaves fewer assumptions to defend.
+   If you edit the graph as text, write `U [unobserved]` for a variable you did not measure.
+2. **Data:** add a CSV and match its columns to your variables. This step is optional.
+3. **Result:** the variables to adjust for and the estimated effect, with four tabs behind them: what the result rests on, other choices of
+   variables, the code that reproduces it, and the details.
 
-Backend:
+## How a result is reached
 
-```bash
-npm run dev:backend
-```
+The adjustment set is the recommended one, or one you choose. An estimate needs a treatment and outcome with columns in your file, and:
 
-### Local URLs
+| Treatment | Outcome | Estimate |
+| --- | --- | --- |
+| Two values | Numeric or two values | AIPW: ATE or ATT, the latter chosen next to the result |
+| Numeric | Numeric | Linear regression coefficient, with robust standard errors |
+| Numeric | Two values | Logistic regression odds ratio, with robust standard errors |
 
-- Frontend: `http://127.0.0.1:5173`
-- Backend health: `http://127.0.0.1:8000/api/health`
-- Backend docs: `http://127.0.0.1:8000/docs`
+Each single-arrow error that breaks the set is then rated, comparing the two sets on the same rows:
 
-## Deployment Configuration
+- **Would change your conclusion:** the sign flips or the interval starts or stops including zero, with a shift of at least 0.25 standard errors.
+- **Would leave no valid analysis:** no measured set of variables would work.
+- **Would move the estimate:** a shift of at least 0.5 standard errors, and larger than noise by a paired test.
+- **Would barely matter here:** anything smaller.
 
-For a GitHub Pages frontend served from `/causal-graph-workbench` and a Render backend at `https://causal-analysis-workbench.onrender.com`:
+Separately, each independence your graph implies among measured variables is tested on the data, with a generalised covariance measure on
+a flexible basis and Holm's correction. Files over 20,000 rows are sampled for these tests. A conflict that no arrow would act on is listed
+apart, because it does not affect this result.
 
-Frontend build environment:
+How strong something unmeasured would have to be depends on the estimate:
 
-```bash
-VITE_BASE_PATH=/causal-graph-workbench/
-VITE_API_BASE_URL=https://causal-analysis-workbench.onrender.com/api
-```
+| Estimate | Robustness value and benchmarks | E-value |
+| --- | --- | --- |
+| AIPW | The bound of Chernozhukov et al. (2022), on the estimate shown | On the risk ratio for a two-value outcome. For a numeric one, an approximate conversion from the standardized difference |
+| Linear regression | Cinelli and Hazlett (2020), with their classical standard error | Per one SD of treatment, from the standardized difference |
+| Logistic regression | Cinelli and Hazlett (2020) on a linear probability model with the same variables, because the bound does not apply to an odds ratio. The page says so | Per one SD of treatment, reading the odds ratio as a risk ratio if the outcome is under 15%, and its square root otherwise |
 
-`VITE_API_BASE_URL` may also be set to the bare Render service origin such as
-`https://causal-analysis-workbench.onrender.com`; the frontend normalizes that to `/api`.
-
-Backend environment:
-
-```bash
-CAUSAL_WORKBENCH_ALLOWED_ORIGINS=https://www.zihanliang.com,https://your-frontend-origin.example
-```
-
-If these variables are unset, local development keeps using the current defaults:
-
-- frontend assets resolve from `/`
-- frontend API calls use `/api`
-- backend CORS allows the local Vite origins
-
-For deployed environments, `CAUSAL_WORKBENCH_ALLOWED_ORIGINS` must include the exact browser origin that serves the
-frontend, including the correct scheme and host. If the frontend moves between GitHub Pages, a custom domain, or a
-preview domain, update the comma-separated list and redeploy the backend.
-
-## Example Usage
-
-### Fastest product walkthrough
-
-1. Start the app with `npm run dev`.
-2. Open `http://127.0.0.1:5173`.
-3. In the left sidebar `Start` page, load **Simple confounding + demo CSV** from `Examples`.
-4. Inspect:
-   - `Summary` for the main structural conclusion
-   - `Paths` for open/blocked path logic
-   - `Estimate` for estimator suggestions and copy-ready code
-   - `Checks` for validation, assumptions, and diagnostics
-5. Export the graph or analysis from the top bar, or save the entire project as JSON.
-
-### Manual graph entry example
-
-Use the text parser:
+## Project structure
 
 ```text
-Z -> X
-Z -> Y
-X -> Y
+apps/frontend/
+  public/            Demo CSVs and sample project
+  src/
+    engine/          Analysis engine
+      adjustment.ts  Adjustment sets
+      audit.ts       Which assumptions the result depends on
+      effect.ts      Effect estimates
+      sensitivity.ts How strong something unmeasured would have to be
+      reproduce.ts   The script that recomputes the whole analysis
+      stats/         Regression and independence tests
+      worker.ts      Runs the engine off the main thread, and drops a run a newer one replaces
+    components/      Start screen, the canvas, and one panel for each step
+    lib/             Edge-list parser, export, examples, layout
+    store/           Zustand state
+packages/shared/     TypeScript types for the analysis request and result
+tools/verification/  Checks the engine against independent reference implementations
+tools/research/      The prototypes and findings behind the assumptions check
 ```
 
-Then:
+## How results are checked
 
-1. Apply the parser result.
-2. Select `X` as treatment and `Y` as outcome.
-3. Review the recommended adjustment set and generated code.
+`npm test` runs the engine against reference results checked into the repository, which share no code with it:
 
-## Demo Assets
+- Adjustment sets, d-separation, variable roles, path counts and single-arrow errors, against brute-force enumeration on networkx
+- Regression, propensity overlap, balance, and AIPW estimates, against statsmodels and pandas
+- The robustness value and its benchmarks against DoubleML, given the same fitted models, and the R package sensemakr; E-values against the
+  R package EValue
 
-- Demo CSV: `apps/frontend/public/demo-data/simple-confounding-study.csv`
-- Demo project JSON: `apps/frontend/public/demo-projects/simple-confounding-demo.json`
-
-The same demo is exposed directly in the UI as an example project.
-
-## Quality Checks
-
-### Frontend tests
+Three further checks need Python. Install what they use, then run them:
 
 ```bash
-npm run test --workspace @causal-graph-workbench/frontend
+python3 -m pip install -r tools/verification/requirements.txt causaldata dowhy
 ```
 
-### Backend tests
+Run every generated script on data with a known effect, including messy files, and confirm each script reproduces the app's number. This
+also runs the script for the whole analysis on every scenario, and checks that it notices a changed data file:
 
 ```bash
-python3 -m pytest apps/backend/tests
+npm run verify:code
 ```
 
-### Frontend typecheck
+Run the real engine on LaLonde's job-training data, where a randomized experiment gives the answer: +$1,794, against a naive -$8,498.
+Omitting `black` or `re75` from an analyst's graph is what moves the estimate, the data flags both, and correcting them cuts the distance
+from the benchmark from $1,570 and $1,250 to $523:
 
 ```bash
-npm run typecheck
+npm run verify:lalonde
 ```
 
-### Frontend build
+Measure what the panel claims across simulated studies, about 4 minutes. The current results are below:
 
 ```bash
-npm run build --workspace @causal-graph-workbench/frontend
+npm run verify:calibration
 ```
 
-### Full root verification
+| 200 simulated graphs per row | False alarm, correct graph | Harmful missing arrow detected | Median error, before and after the fix |
+| --- | --- | --- | --- |
+| Strong effects, n=2000 | 6.5% | 100% | 0.118 to 0.015 |
+| Medium effects, n=500 | 4.0% | 69% | 0.034 to 0.029 |
+| Weak effects, n=200 | 6.0% | 7.6% | 0.052 to 0.042 |
+| Nonlinear, strong, n=2000 | 9.5% | 83% | not measured |
+| Nonlinear, medium, n=500 | 4.5% | 50% | not measured |
 
-```bash
-npm run test
-```
+95% confidence intervals contained the truth 93% to 97.5% of the time across the estimators, and a shift between two valid sets was called
+larger than noise 6% of the time, against a target of 5%.
 
-## What The App Returns
+It also puts a known confounder in simulated files. With no true effect, the confounder was at least as strong as the robustness value in
+94% to 100% of files, which is the claim the page makes. A confounder built to be as strong as a measured variable had a median true bias of
+0.98 to 1.00 times that variable's figure, from 0.66 to 1.40 between the 5th and 95th percentiles, which is why the page says "about".
 
-The backend returns a structured analysis object containing:
+To rebuild the reference results or the demo file, run `npm run verify:golden` or `python3 tools/verification/generate_demo_data.py`.
+`npm run verify:sensitivity` rebuilds the sensitivity references, and needs DoubleML and the R packages sensemakr and EValue.
 
-- validation issues
-- graph stats
-- path analysis
-- node roles
-- adjustment set summaries
-- recommended adjustment set
-- forbidden variables
-- assumptions
-- estimator recommendations
-- code snippets
-- optional data diagnostics
+One reference is corrected rather than copied. DoubleML 0.11.4 gives the standard error of its bound the wrong sign relative to the estimate's
+influence function, which changes the robustness value for the interval. The generator reproduces DoubleML's number with that sign, to show
+it is the only difference, and checks the corrected standard error against a bootstrap, which it matches and DoubleML's does not.
+The `Verify` GitHub Actions workflow runs these checks on every pull request.
 
-See:
+## How the engine stays fast
 
-- `packages/shared/src/index.ts`
-- `packages/shared/analysis-contract.json`
-- `apps/backend/app/models/schemas.py`
+Validity checks use d-separation in linear time, so they never depend on how many paths a graph has. Minimal adjustment sets are listed with
+polynomial delay per set (Takata, 2010; van der Zander, Liśkiewicz & Textor, 2019). Listings for display are capped: when a graph has too many
+paths or valid sets to show, or an audit reaches its time limit, the app says so.
 
-## Trust And Interpretation
+The graph result appears first, and estimates fill in as they finish, on a worker that drops a run as soon as a newer one replaces it. Fits and
+tests are cached per file, so editing the graph only computes what changed.
 
-This workbench is designed to stay explicit about its scope and assumptions.
+## Deployment
 
-- It provides **structurally valid guidance conditional on the user-specified DAG and modeling assumptions**.
-- It does **not** confirm that the DAG is true.
-- It does **not** guarantee that a recommended set yields unbiased estimates in the real world.
-- Data diagnostics are descriptive and cautious; they do not prove ignorability, positivity, or MNAR.
+The app is a static site. The GitHub Pages workflow builds it on every push to `main`. Set the repository variable `VITE_BASE_PATH` if it is
+not served from `/causal-graph-workbench/`.
