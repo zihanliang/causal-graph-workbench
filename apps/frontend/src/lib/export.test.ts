@@ -61,6 +61,134 @@ describe("the printable report", () => {
     expect(html).not.toMatch(/graph_summary|path-\d+/);
   });
 
+  describe("with data", () => {
+    const rows = Array.from({ length: 60 }, (_, index) => `${index % 2},${(index * 7) % 11},${(index * 3) % 13}`);
+    const dataset = { filename: "s.csv", content: ["X,Y,Z", ...rows].join("\n") };
+    const analysis = analyze({ graph, dataset });
+    const report = buildPrintableReportHtml(graph, analysis, { hasData: true });
+
+    describe("no report shows an internal code", () => {
+      const hidden = {
+        nodes: ["U", "X", "Y"].map((id) => ({ id, label: id, x: 0, y: 0, observed: id !== "U" })),
+        edges: [
+          { id: "U->X", source: "U", target: "X" },
+          { id: "U->Y", source: "U", target: "Y" },
+          { id: "X->Y", source: "X", target: "Y" },
+        ],
+        treatmentId: "X",
+        outcomeId: "Y",
+      };
+      const withBlank = { filename: "s.csv", content: ["X,Y,Z", ...rows, "1,,3"].join("\n") };
+      const cases = [
+        ["with data", graph, analyze({ graph, dataset: withBlank }), true],
+        ["without data", graph, analyze({ graph }), false],
+        ["with no valid adjustment set", hidden, analyze({ graph: hidden }), false],
+      ] as const;
+      // The variables here are single letters, so nothing shaped like these comes from the user.
+      const internal = /\b[a-z]+_[a-z_]+\b|\b\w+=\w+/g;
+
+      test.each(cases)("printable, %s", (_, spec, result, hasData) => {
+        const text = buildPrintableReportHtml(spec, result, { hasData })
+          .replace(/<style[\s\S]*?<\/style>/, "")
+          .replace(/<svg[\s\S]*?<\/svg>/, "")
+          .replace(/<pre[\s\S]*?<\/pre>/g, "")
+          .replace(/<code>[\s\S]*?<\/code>/g, "")
+          .replace(/<[^>]+>/g, " ");
+        expect(text).toContain("Causal analysis report");
+        expect(text.match(internal)).toBeNull();
+        expect(text).not.toMatch(/\bBinding\b/);
+      });
+
+      test.each(cases)("Markdown, %s", (_, spec, result, hasData) => {
+        const text = buildMarkdownReport(spec, result, { hasData })
+          .replace(/```[\s\S]*?```/g, "")
+          .replace(/`[^`]*`/g, "");
+        expect(text).toContain("## Adjustment Sets");
+        expect(text.match(internal)).toBeNull();
+        expect(text).not.toMatch(/\bBinding/);
+        expect(text).not.toMatch(/\((exact|normalized|provided|unmatched)\)/);
+      });
+    });
+
+    test("a Markdown report reads like the printed one", () => {
+      const markdown = buildMarkdownReport(graph, analysis, { hasData: true });
+      expect(markdown).toMatch(/^- X ← Z → Y is a backdoor path/m);
+      expect(markdown).toMatch(/^- \{Z\} \(valid, recommended\): /m);
+      expect(markdown).toMatch(/^- Doubly robust \/ AIPW \(default\): Estimates .* `Y ~ X \+ Z`$/m);
+      expect(markdown).toMatch(/^### Columns matched to variables$/m);
+      expect(markdown).toMatch(/^- Z → Z$/m);
+    });
+
+    test("prints the template that reproduces the estimate it states", () => {
+      expect(analysis.effect!.estimate!.snippetId).toBe("python-aipw");
+      expect(report).toContain("<strong>Python / AIPW</strong>. This code reproduces the estimate in this report.");
+      expect(report).toContain("AIPW ATE:");
+      expect(report).not.toContain("Python / statsmodels");
+
+      const markdown = buildMarkdownReport(graph, analysis, { hasData: true });
+      expect(markdown).toContain("## Code Template: Python / AIPW");
+      expect(markdown).toContain("This code reproduces the estimate in this report.");
+    });
+
+    test("a long list can break after a comma, and the code itself is unchanged", () => {
+      const printed = new DOMParser().parseFromString(report, "text/html").querySelector("pre code")!;
+      const aipw = analysis.codeSnippets.find((snippet) => snippet.id === "python-aipw")!;
+      expect(printed.querySelectorAll("wbr").length).toBeGreaterThan(10);
+      expect(printed.textContent).toBe(aipw.content);
+      expect(report).toContain("Long lines are wrapped to fit the page.");
+    });
+
+    test("a regression estimate gets the regression template", () => {
+      const scored = { filename: "s.csv", content: ["X,Y,Z", ...rows.map((row, index) => `${index * 0.37 % 5},${row.split(",").slice(1).join(",")}`)].join("\n") };
+      const fitted = analyze({ graph, dataset: scored });
+      expect(fitted.effect!.estimate!.snippetId).toBe("python-statsmodels");
+      expect(buildPrintableReportHtml(graph, fitted, { hasData: true })).toContain("<strong>Python / statsmodels</strong>. This code reproduces");
+    });
+  });
+
+  test("with no estimate, a template makes no claim to reproduce one", () => {
+    expect(html).toContain("Code Template");
+    expect(html).not.toContain("reproduces the estimate");
+  });
+
+  test("a long line of code wraps, because paper cannot scroll", () => {
+    const style = html.match(/<style>([\s\S]*?)<\/style>/)![1];
+    expect(style).toMatch(/pre \{[^}]*white-space: pre-wrap/);
+    expect(style).not.toMatch(/overflow: auto/);
+  });
+
+  test("a long template may cross a page, and a short list of checks stays together", () => {
+    const style = html.match(/<style>([\s\S]*?)<\/style>/)![1];
+    const unbroken = style.match(/([^{}]*)\{ break-inside: avoid; \}/)![1];
+    expect(unbroken).toContain(".checks");
+    expect(unbroken).not.toContain("pre");
+  });
+
+  test("the saved file is named after the report, and the page gets its own title back", () => {
+    vi.useFakeTimers();
+    document.title = "Causal Graph Workbench";
+    const frames: HTMLIFrameElement[] = [];
+    const append = vi.spyOn(document.body, "appendChild").mockImplementation((node) => {
+      frames.push(node as HTMLIFrameElement);
+      return node;
+    });
+    openAnalysisPdf(graph, analyze({ graph }));
+    append.mockRestore();
+
+    const titleAtPrint: string[] = [];
+    const printWindow = { focus: vi.fn(), print: vi.fn(() => titleAtPrint.push(document.title)), onafterprint: null as null | (() => void) };
+    Object.defineProperty(frames[0], "contentWindow", { value: printWindow });
+    frames[0].dispatchEvent(new Event("load"));
+    vi.advanceTimersByTime(100);
+    vi.useRealTimers();
+
+    expect(printWindow.print).toHaveBeenCalledTimes(1);
+    expect(titleAtPrint).toEqual(["Causal analysis report"]);
+    expect(document.title).toBe("Causal analysis report");
+    printWindow.onafterprint!();
+    expect(document.title).toBe("Causal Graph Workbench");
+  });
+
   test("a warning on the graph reads as a sentence, without its internal code", () => {
     const lonely = { ...graph, nodes: [...graph.nodes, { id: "Q", label: "Q", x: 0, y: 0 }] };
     const report = buildPrintableReportHtml(lonely, analyze({ graph: lonely }));
@@ -290,7 +418,7 @@ describe("export helpers", () => {
     expect(markdown).toContain("These checks cannot see something unmeasured");
     expect(markdown.toLowerCase()).not.toMatch(/\b(passed|confirmed|verified|validated)\b/);
     expect(markdown).toContain("- U1 → X");
-    expect(markdown).toContain("- X → X (exact)");
+    expect(markdown).toMatch(/^- X → X$/m);
     expect(markdown).not.toMatch(/ (->|<-) /);
   });
 

@@ -1,9 +1,27 @@
-import type { AnalysisResult, DataContext, GraphSpec } from "@causal-graph-workbench/shared";
+import type { AnalysisResult, CodeSnippet, DataContext, GraphSpec } from "@causal-graph-workbench/shared";
 import { toPng } from "html-to-image";
 
 import { arrowLabel, effectSummary, repairSummary, roleCaption, shiftSummary } from "./format";
 import { buildMethodsText } from "./methods";
 import { isProjectSnapshot, type ProjectSnapshot } from "./projectSnapshot";
+
+const REPORT_TITLE = "Causal analysis report";
+
+/** The page's own title while a report is printing, so that it can be put back afterwards. */
+let titleBeforePrint: string | null = null;
+
+function restoreTitle(): void {
+  if (titleBeforePrint !== null) {
+    document.title = titleBeforePrint;
+    titleBeforePrint = null;
+  }
+}
+
+/** The template a report prints: the one that reproduces the estimate it states, not whichever comes first. */
+function reportSnippet(analysis: AnalysisResult): { snippet: CodeSnippet | undefined; reproducesEstimate: boolean } {
+  const matching = analysis.codeSnippets.find((snippet) => snippet.id === analysis.effect?.estimate?.snippetId);
+  return { snippet: matching ?? analysis.codeSnippets[0], reproducesEstimate: Boolean(matching) };
+}
 
 export function downloadJsonFile(filename: string, payload: unknown): void {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -67,7 +85,10 @@ export function openAnalysisPdf(graph: GraphSpec, analysis: AnalysisResult | nul
   frame.style.pointerEvents = "none";
   frame.tabIndex = -1;
 
-  const cleanup = () => frame.remove();
+  const cleanup = () => {
+    restoreTitle();
+    frame.remove();
+  };
 
   const printReport = () => {
     const printWindow = frame.contentWindow;
@@ -76,6 +97,9 @@ export function openAnalysisPdf(graph: GraphSpec, analysis: AnalysisResult | nul
       throw new Error("Printable report could not be opened.");
     }
 
+    // Chrome names the saved PDF after the page's title, not after the frame that prints.
+    titleBeforePrint ??= document.title;
+    document.title = REPORT_TITLE;
     printWindow.onafterprint = cleanup;
     printWindow.focus();
     printWindow.print();
@@ -167,9 +191,7 @@ export function buildMarkdownReport(graph: GraphSpec, analysis: AnalysisResult |
   lines.push("", "## Path Highlights");
   if (analysis.paths.length) {
     for (const path of analysis.paths) {
-      lines.push(
-        `- ${path.pathString} [${path.category}] [${path.defaultEvaluation.status}]: ${path.explanation}`,
-      );
+      lines.push(`- ${path.explanation}`);
     }
   } else {
     lines.push("- No treatment-outcome paths were enumerated.");
@@ -179,7 +201,7 @@ export function buildMarkdownReport(graph: GraphSpec, analysis: AnalysisResult |
   if (analysis.adjustmentSets.length) {
     for (const adjustmentSet of analysis.adjustmentSets) {
       lines.push(
-        `- ${formatSet(adjustmentSet.variables)} | structural=${adjustmentSet.isValid ? "valid" : "invalid"} | practical=${adjustmentSet.practicalRating}: ${adjustmentSet.explanation}`,
+        `- ${formatSet(adjustmentSet.variables)} (${adjustmentSet.isValid ? "valid" : "not valid"}, ${adjustmentSet.practicalRating}): ${adjustmentSet.explanation}`,
       );
     }
   } else {
@@ -210,9 +232,7 @@ export function buildMarkdownReport(graph: GraphSpec, analysis: AnalysisResult |
   lines.push("", "## Estimator Recommendations");
   if (analysis.estimatorRecommendations.length) {
     for (const estimator of analysis.estimatorRecommendations) {
-      lines.push(
-        `- ${estimator.name} | recommended=${estimator.recommended ? "yes" : "no"} | priority=${estimator.priority} | ${estimator.formulaPreview}`,
-      );
+      lines.push(`- ${estimator.name}${estimator.recommended ? " (default)" : ""}: ${estimator.summary} \`${estimator.formulaPreview}\``);
       if (estimator.caveats.length) {
         lines.push(...estimator.caveats.map((caveat) => `  - Caveat: ${caveat}`));
       }
@@ -230,18 +250,18 @@ export function buildMarkdownReport(graph: GraphSpec, analysis: AnalysisResult |
       `- Columns: ${analysis.dataDiagnostics.columnCount}`,
       ...analysis.dataDiagnostics.warnings.map((warning) => `- Warning: ${warning}`),
     );
-    lines.push("", "### Variable Bindings");
-    lines.push(
-      ...analysis.dataDiagnostics.variableBindings.map(
-        (binding) => `- ${binding.nodeId} → ${binding.columnName ?? "unmatched"} (${binding.matchType})`,
-      ),
-    );
+    lines.push("", "### Columns matched to variables");
+    lines.push(...analysis.dataDiagnostics.variableBindings.map((binding) => `- ${binding.nodeId} → ${binding.columnName ?? "not in this file"}`));
     lines.push(...buildCovariateCheckLines(analysis));
   }
 
-  const primarySnippet = analysis.codeSnippets[0];
-  if (primarySnippet) {
-    lines.push("", `## Code Template: ${primarySnippet.label}`, "```" + primarySnippet.language, primarySnippet.content, "```");
+  const { snippet, reproducesEstimate } = reportSnippet(analysis);
+  if (snippet) {
+    lines.push("", `## Code Template: ${snippet.label}`);
+    if (reproducesEstimate) {
+      lines.push("", "This code reproduces the estimate in this report.");
+    }
+    lines.push("```" + snippet.language, snippet.content, "```");
   } else if (!analysis.adjustmentSets.length) {
     lines.push("", "## Code Template", "- No code template is emitted when no valid backdoor adjustment set is available.");
   }
@@ -370,7 +390,7 @@ export function buildPrintableReportHtml(graph: GraphSpec, analysis: AnalysisRes
   sections.push(
     `<section class="hero">` +
       `<p class="source">Causal Graph Workbench</p>` +
-      `<h1>Causal analysis report</h1>` +
+      `<h1>${REPORT_TITLE}</h1>` +
       `<p class="lede">The effect of ${escapeHtml(graph.treatmentId ?? "treatment")} on ${escapeHtml(graph.outcomeId ?? "outcome")}, given the causal graph below.</p>` +
       `<div class="notice">The tool does not verify the DAG is true. It only reasons conditionally on the DAG provided by the user.</div>` +
     `</section>`,
@@ -445,7 +465,7 @@ export function buildPrintableReportHtml(graph: GraphSpec, analysis: AnalysisRes
           ? `<ul>${analysis.estimatorRecommendations
               .map(
                 (estimator) =>
-                  `<li><strong>${escapeHtml(estimator.name)}</strong> (${escapeHtml(estimator.family)})` +
+                  `<li><strong>${escapeHtml(estimator.name)}</strong>` +
                   `${estimator.recommended ? ` <span class="badge">default</span>` : ""}` +
                   `<br /><span class="muted">${escapeHtml(estimator.summary)}</span>` +
                   `<br /><code>${escapeHtml(estimator.formulaPreview)}</code>` +
@@ -460,7 +480,7 @@ export function buildPrintableReportHtml(graph: GraphSpec, analysis: AnalysisRes
       sections.push(
         `<section><h2>Data Diagnostics</h2>` +
           `<p><strong>Dataset:</strong> ${escapeHtml(analysis.dataDiagnostics.datasetName ?? "uploaded.csv")} | ${analysis.dataDiagnostics.rowCount} rows | ${analysis.dataDiagnostics.columnCount} columns</p>` +
-          `<div class="table">${comparisonHeader(["Column", "Type", "Missing", "Unique", "Binding"])}${analysis.dataDiagnostics.columnProfiles
+          `<div class="table">${comparisonHeader(["Column", "Type", "Missing", "Unique", "Variable"])}${analysis.dataDiagnostics.columnProfiles
             .map((profile) => {
               const bindings = analysis.dataDiagnostics?.variableBindings
                 .filter((item) => item.columnName === profile.columnName)
@@ -481,15 +501,18 @@ export function buildPrintableReportHtml(graph: GraphSpec, analysis: AnalysisRes
               .filter((line) => line.startsWith("- "))
               .map((line) => `<li>${escapeHtml(line.slice(2))}</li>`)
               .join("");
-            return checks ? `<h3>Balance and overlap</h3><ul>${checks}</ul>` : "";
+            return checks ? `<h3>Balance and overlap</h3><ul class="checks">${checks}</ul>` : "";
           })()}` +
         `</section>`,
       );
     }
-    const primarySnippet = analysis.codeSnippets[0];
-    if (primarySnippet) {
+    const { snippet, reproducesEstimate } = reportSnippet(analysis);
+    if (snippet) {
       sections.push(
-        `<section><h2>Code Template</h2><p><strong>${escapeHtml(primarySnippet.label)}</strong></p><pre><code>${escapeHtml(primarySnippet.content)}</code></pre></section>`,
+        `<section><h2>Code Template</h2>` +
+          `<p class="code-label"><strong>${escapeHtml(snippet.label)}</strong>.${reproducesEstimate ? " This code reproduces the estimate in this report." : ""} Long lines are wrapped to fit the page.</p>` +
+          // A break after a comma keeps a long list valid Python, where a break inside a name would not.
+          `<pre><code>${escapeHtml(snippet.content).replace(/,/g, ",<wbr>")}</code></pre></section>`,
       );
     } else if (!analysis.adjustmentSets.length) {
       sections.push(
@@ -505,7 +528,7 @@ export function buildPrintableReportHtml(graph: GraphSpec, analysis: AnalysisRes
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Causal Analysis Report</title>
+    <title>${REPORT_TITLE}</title>
     <style>
       :root { color-scheme: light; }
       * { box-sizing: border-box; }
@@ -527,8 +550,11 @@ export function buildPrintableReportHtml(graph: GraphSpec, analysis: AnalysisRes
       .table { display: grid; }
       .row { display: grid; grid-template-columns: minmax(90px, 140px) 80px 70px 110px minmax(0, 1fr); gap: 10px; padding: 8px 0; border-top: 1px solid #f0f1f2; }
       .row.header { border-top: 0; color: #5d5f60; font-size: 12px; }
+      .table + h3 { margin-top: 20px; }
       code, pre { font-family: "IBM Plex Mono", Menlo, Consolas, monospace; font-size: 12px; }
-      pre { overflow: auto; padding: 12px; background: #f4f6f8; border-radius: 6px; }
+      /* Wrapped rather than scrolled: paper cannot scroll, so a long line would lose its end. */
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #f4f6f8; border-radius: 6px; font-size: 11px; line-height: 1.45; }
+      pre code { font-size: inherit; }
       .badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 4px; background: #ebedee; font-size: 12px; }
       .graph { margin: 0; }
       .graph svg { display: block; max-width: 100%; height: auto; }
@@ -536,8 +562,10 @@ export function buildPrintableReportHtml(graph: GraphSpec, analysis: AnalysisRes
       @page { margin: 18mm 16mm; }
       @media print {
         main { max-width: none; padding: 0; }
-        h2, h3 { break-after: avoid; }
-        figure, .row, li, .card, pre { break-inside: avoid; }
+        h2, h3, .code-label { break-after: avoid; }
+        figure, .row, li, .card, .checks { break-inside: avoid; }
+        /* A template can be longer than a page, so it has to be able to cross one. */
+        pre { box-decoration-break: clone; -webkit-box-decoration-break: clone; }
         p { orphans: 3; widows: 3; }
       }
     </style>
