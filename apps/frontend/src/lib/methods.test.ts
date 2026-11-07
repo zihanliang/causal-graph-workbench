@@ -7,6 +7,7 @@ import { analyze } from "../engine/analyze";
 import { exampleProjects } from "./exampleProjects";
 import { buildMarkdownReport } from "./export";
 import { effectInterval, effectValue } from "./format";
+import { applyChange } from "./graphVersions";
 import { buildMethodsText, methodsAsText } from "./methods";
 
 const example = exampleProjects.find((item) => item.id === "training-program")!;
@@ -139,5 +140,79 @@ describe("methods text in other situations", () => {
     const text = buildMethodsText(graph, analysis).paragraphs.join(" ");
     expect(text).toContain("average treatment effect on the treated");
     expect(text).toContain("capped at 0.99");
+  });
+});
+
+describe("when graphs were compared", () => {
+  const second = applyChange(example.graph, { edit: "add", source: "education", target: "training" });
+  const methods = buildMethodsText(
+    example.graph,
+    run({
+      versions: [
+        { id: "a", name: "Graph A", graph: example.graph },
+        { id: "b", name: "Graph B", graph: second },
+      ],
+      activeVersionId: "a",
+    }).analysis,
+  );
+  const paragraph = methods.paragraphs.find((item) => item.includes("candidate graphs"))!;
+
+  test("says that it was done, with the range of estimates and the set valid under them", () => {
+    expect(paragraph).toContain("repeated the analysis under 2 candidate graphs on the same data");
+    expect(paragraph).toContain("2 different adjustment sets, with estimates from 2.882 to 4.630");
+    expect(paragraph).toMatch(/Adjusting for age, education and prior_earnings is valid under 2 of them and gives 2\.882/);
+    expect(paragraph).toContain("holds only if one of those graphs is correct");
+  });
+
+  test("does not let a graph the data did not contradict sound confirmed", () => {
+    expect(paragraph).toContain("does not show that the others are correct");
+    expect(paragraph.toLowerCase()).not.toMatch(/\b(verified|confirmed|validated|passed)\b/);
+  });
+
+  test("does not claim the script covers every graph", () => {
+    expect(methods.paragraphs.join(" ")).toContain("reproduces the numbers for the graph described first");
+    expect(methods.paragraphs.join(" ")).toContain("It does not cover the other graphs tried.");
+    expect(methods.paragraphs.join(" ")).not.toContain("reproduces these numbers");
+  });
+
+  test("a single graph has no such paragraph", () => {
+    expect(buildMethodsText(example.graph, run().analysis).paragraphs.some((item) => item.includes("candidate graphs"))).toBe(false);
+  });
+});
+
+describe("when arrows were marked as not sure", () => {
+  const methods = buildMethodsText(example.graph, run({ uncertainPairs: [{ first: "education", second: "training" }, { first: "education", second: "promoted" }] }).analysis);
+  const paragraph = methods.paragraphs.find((item) => item.includes("each combination"))!;
+
+  test("says what was tried, what it led to, and what the answer depends on", () => {
+    expect(paragraph).toContain("We were unsure whether an arrow joins education and training and education and promoted");
+    expect(paragraph).toContain("estimates from 2.882 to 4.630");
+    expect(paragraph).toContain("The answer depends on education and training.");
+    expect(paragraph).toMatch(/Adjusting for age, education and prior_earnings is valid under \d+ of the combinations/);
+  });
+
+  test("does not explain away combinations that were not left out", () => {
+    const all = buildMethodsText(example.graph, run({ uncertainPairs: [{ first: "age", second: "education" }] }).analysis);
+    expect(all.paragraphs.join(" ")).toContain("All 3 combinations were analysed.");
+    expect(all.paragraphs.join(" ")).not.toContain("the others would");
+  });
+
+  test("does not let any combination sound confirmed, or the script sound complete", () => {
+    expect(paragraph.toLowerCase()).not.toMatch(/\b(verified|confirmed|validated|passed)\b/);
+    expect(methods.paragraphs.join(" ")).toContain("It does not cover the other graphs tried.");
+  });
+});
+
+describe("when something measured could explain away the whole estimate", () => {
+  const unsure = simple([["Z", "X"], ["Z", "Y"], ["X", "Y"]]);
+  const rows = Array.from({ length: 300 }, (_, index) => {
+    const z = Math.sin(index * 1.3);
+    return `${z + 0.4 * Math.cos(index * 2.1) > 0 ? 1 : 0},${(3 * z + 0.02 * Math.sin(index * 4.7)).toFixed(4)},${z.toFixed(4)}`;
+  });
+  const text = buildMethodsText(unsure, analyze({ graph: unsure, dataset: { content: ["X,Y,Z", ...rows].join("\n") } })).paragraphs.join(" ");
+
+  test("reads as a sentence, without a figure that means nothing", () => {
+    expect(text).not.toMatch(/, ;/);
+    expect(text).not.toMatch(/999\.0%|\d{3,}\.\d%/);
   });
 });

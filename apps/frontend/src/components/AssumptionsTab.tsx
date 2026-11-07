@@ -10,6 +10,7 @@ import type {
 
 import { arrowLabel, repairSummary, shiftSummary } from "../lib/format";
 import { useWorkbenchStore } from "../store/useWorkbenchStore";
+import { COMPARE_LABEL, COMPARE_UNMEASURED_LABEL, useCompareWith } from "./CompareTab";
 import { SensitivityChart } from "./SensitivityChart";
 import { Disclosure } from "./ui";
 
@@ -48,6 +49,7 @@ const SECTIONS: { severity: AssumptionSeverity; title: string; subtitle: string;
 
 export function AssumptionsTab({ analysis, graph }: { analysis: AnalysisResult | null; graph: GraphSpec }) {
   const setActiveTab = useWorkbenchStore((state) => state.setActiveTab);
+  const setOpenStep = useWorkbenchStore((state) => state.setOpenStep);
 
   if (!analysis) {
     return <p className="empty">This appears as soon as the graph has been processed.</p>;
@@ -56,7 +58,14 @@ export function AssumptionsTab({ analysis, graph }: { analysis: AnalysisResult |
     return (
       <p className="empty">
         No valid adjustment set exists for this graph, so there is no result yet whose assumptions could be checked.{" "}
-        <button type="button" className="link-button" onClick={() => setActiveTab("details")}>
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => {
+            setOpenStep("paths");
+            setActiveTab("steps");
+          }}
+        >
           See which paths stay open
         </button>
       </p>
@@ -130,6 +139,22 @@ export function AssumptionsTab({ analysis, graph }: { analysis: AnalysisResult |
           </div>
         </Disclosure>
       ) : null}
+
+      <Disclosure title="What every analysis assumes" count={analysis.assumptions.length}>
+        <dl className="definition-list">
+          {[...analysis.assumptions]
+            .sort((left, right) => Number(right.category === "identification") - Number(left.category === "identification"))
+            .map((item) => (
+              <div key={item.id}>
+                <dt>
+                  {item.title}
+                  <span className="pill">{item.level}</span>
+                </dt>
+                <dd>{item.description}</dd>
+              </div>
+            ))}
+        </dl>
+      </Disclosure>
     </div>
   );
 }
@@ -264,15 +289,9 @@ const DATA_PILL: Record<LoadBearingAssumption["dataCheck"], { label: string; cla
   not_testable: null,
 };
 
-const APPLY_LABEL: Record<LoadBearingAssumption["edit"], string> = {
-  add: "Add this arrow",
-  remove: "Remove this arrow",
-  reverse: "Reverse this arrow",
-};
-
 function AssumptionItem({ assumption }: { assumption: LoadBearingAssumption }) {
   const setPreviewArrow = useWorkbenchStore((state) => state.setPreviewArrow);
-  const applyArrowEdit = useWorkbenchStore((state) => state.applyArrowEdit);
+  const compareWith = useCompareWith();
   const { edit, source, target } = assumption;
   const pill = DATA_PILL[assumption.dataCheck];
   const shift = shiftSummary(assumption);
@@ -288,16 +307,30 @@ function AssumptionItem({ assumption }: { assumption: LoadBearingAssumption }) {
         {assumption.statement} {assumption.consequence} {repairSummary(assumption)}
       </p>
       <p className="hint">{assumption.dataCheckNote}</p>
-      <button
-        type="button"
-        className="btn"
-        onClick={() => {
-          setPreviewArrow(null);
-          applyArrowEdit({ edit, source, target });
-        }}
-      >
-        {APPLY_LABEL[edit]}
-      </button>
+      <div className="button-row">
+        <button
+          type="button"
+          className="btn"
+          onClick={() => {
+            setPreviewArrow(null);
+            compareWith({ edit, source, target });
+          }}
+        >
+          {COMPARE_LABEL[edit]}
+        </button>
+        {edit === "add" && assumption.dataCheck === "conflict" ? (
+          <button
+            type="button"
+            className="btn btn--text"
+            onClick={() => {
+              setPreviewArrow(null);
+              compareWith({ edit: "unmeasured", source, target });
+            }}
+          >
+            {COMPARE_UNMEASURED_LABEL}
+          </button>
+        ) : null}
+      </div>
     </article>
   );
 }

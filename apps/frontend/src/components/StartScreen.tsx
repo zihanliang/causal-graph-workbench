@@ -12,6 +12,7 @@ export function StartScreen() {
   const canResume = useWorkbenchStore((state) => state.canResume);
   const applyTemplate = useWorkbenchStore((state) => state.applyTemplate);
   const hydrateProject = useWorkbenchStore((state) => state.hydrateProject);
+  const goToTourStop = useWorkbenchStore((state) => state.goToTourStop);
   const clearGraph = useWorkbenchStore((state) => state.clearGraph);
   const setView = useWorkbenchStore((state) => state.setView);
   const setStep = useWorkbenchStore((state) => state.setStep);
@@ -28,6 +29,10 @@ export function StartScreen() {
       setError(null);
       setLoadingId(id);
       hydrateProject(await buildExampleProjectSnapshot(example));
+      // The worked example is built up step by step, rather than opening on its finished result.
+      if (id === WORKED_EXAMPLE) {
+        goToTourStop(0);
+      }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "That example could not be loaded.");
     } finally {
@@ -68,6 +73,13 @@ export function StartScreen() {
             <span>
               <strong>Type a graph as text</strong>
               <small>One arrow per line, such as Z -&gt; X</small>
+            </span>
+            <Icon name="chevronRight" />
+          </button>
+          <button type="button" className="start__row" onClick={() => setView("draft")}>
+            <span>
+              <strong>Start from a data file</strong>
+              <small>No graph yet? Say what came before treatment, and get a first one</small>
             </span>
             <Icon name="chevronRight" />
           </button>

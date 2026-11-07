@@ -2,8 +2,9 @@ import type { AnalysisResult, ExplainableSelection, GraphSpec, PathEvaluation } 
 import type { RefObject } from "react";
 
 import { getExplainableDisplayLabel, getExplainableKindLabel } from "../lib/explainableLabel";
-import { formatSet } from "../lib/format";
-import { useWorkbenchStore } from "../store/useWorkbenchStore";
+import { formatSet, joinNames } from "../lib/format";
+import { MAX_GRAPH_VERSIONS, shortName } from "../lib/graphVersions";
+import { selectPreviewArrow, selectStepFocus, useWorkbenchStore } from "../store/useWorkbenchStore";
 import { GraphCanvas } from "./GraphCanvas";
 import { Icon } from "./ui";
 
@@ -16,13 +17,23 @@ interface CanvasWorkspaceProps {
 export function CanvasWorkspace({ graph, analysis, graphShellRef }: CanvasWorkspaceProps) {
   const highlightedPathId = useWorkbenchStore((state) => state.highlightedPathId);
   const selectedExplainable = useWorkbenchStore((state) => state.selectedExplainable);
-  const previewArrow = useWorkbenchStore((state) => state.previewArrow);
+  const previewArrow = useWorkbenchStore(selectPreviewArrow);
+  const stepFocus = useWorkbenchStore(selectStepFocus);
+  const versions = useWorkbenchStore((state) => state.versions);
+  const activeVersionId = useWorkbenchStore((state) => state.activeVersionId);
+  const selectVersion = useWorkbenchStore((state) => state.selectVersion);
+  const tryAnotherGraph = useWorkbenchStore((state) => state.tryAnotherGraph);
   const relayoutGraph = useWorkbenchStore((state) => state.relayoutGraph);
   const clearGraph = useWorkbenchStore((state) => state.clearGraph);
   const isDrawing = useWorkbenchStore((state) => state.step === "graph");
 
   const highlightedPath = analysis?.paths.find((path) => path.id === highlightedPathId) ?? null;
   const hasCausalPath = analysis?.paths.some((path) => path.category === "directed_causal");
+  const hasUnsureArrows = useWorkbenchStore((state) => state.uncertainPairs.length > 0);
+  const hasFaintArrows = graph.edges.some((edge) => edge.background);
+  const hasSeveralGraphs = versions.length > 1;
+  const differsFromFirst = hasSeveralGraphs && versions[0].id !== activeVersionId;
+  const openBackdoor = analysis?.graphStats.openBackdoorPathCount ?? 0;
 
   return (
     <section className="canvas" aria-label="Causal graph">
@@ -30,10 +41,16 @@ export function CanvasWorkspace({ graph, analysis, graphShellRef }: CanvasWorksp
 
       {graph.nodes.length ? (
         <div className="canvas__tools">
+          {versions.length < MAX_GRAPH_VERSIONS ? (
+            <button type="button" className="btn btn--overlay" onClick={tryAnotherGraph}>
+              Try another graph
+            </button>
+          ) : null}
           <button type="button" className="btn btn--overlay" onClick={relayoutGraph}>
             Tidy layout
           </button>
-          {isDrawing ? (
+          {/* Clearing empties every graph and the file, so with several graphs each is removed on purpose instead. */}
+          {isDrawing && !hasSeveralGraphs ? (
             <button type="button" className="btn btn--overlay" onClick={clearGraph}>
               Clear
             </button>
@@ -46,12 +63,41 @@ export function CanvasWorkspace({ graph, analysis, graphShellRef }: CanvasWorksp
         </div>
       )}
 
-      {hasCausalPath ? (
-        <p className="canvas__legend">
-          <span className="canvas__swatch" aria-hidden="true" />
-          Arrows that carry the effect
-        </p>
-      ) : null}
+      <div className="canvas__top">
+        {hasSeveralGraphs ? (
+          <div className="segmented canvas__versions" role="group" aria-label="Graph on show">
+            {versions.map((version) => (
+              <button key={version.id} type="button" aria-label={version.name} aria-pressed={version.id === activeVersionId} onClick={() => selectVersion(version.id)}>
+                {shortName(version.name)}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {hasCausalPath ? (
+          <p className="canvas__legend">
+            <span className="canvas__swatch" aria-hidden="true" />
+            Arrows that carry the effect
+          </p>
+        ) : null}
+        {hasUnsureArrows ? (
+          <p className="canvas__legend">
+            <span className="canvas__swatch canvas__swatch--unsure" aria-hidden="true" />
+            Not sure about these
+          </p>
+        ) : null}
+        {hasFaintArrows ? (
+          <p className="canvas__legend">
+            <span className="canvas__swatch canvas__swatch--faint" aria-hidden="true" />
+            Allowed by time order
+          </p>
+        ) : null}
+        {differsFromFirst ? (
+          <p className="canvas__legend">
+            <span className="canvas__swatch canvas__swatch--what-if" aria-hidden="true" />
+            Differs from {versions[0].name}
+          </p>
+        ) : null}
+      </div>
 
       <div className="canvas__note">
         {selectedExplainable && analysis ? (
@@ -71,6 +117,16 @@ export function CanvasWorkspace({ graph, analysis, graphShellRef }: CanvasWorksp
           <div className="note">
             <strong>{highlightedPath.pathString}</strong>
             <p>{highlightedPath.defaultEvaluation.reason}</p>
+          </div>
+        ) : stepFocus === "paths" ? (
+          <div className="note">
+            <strong>{openBackdoor === 0 ? "No backdoor path is open before adjusting" : openBackdoor === 1 ? "1 backdoor path is open before adjusting" : `${openBackdoor} backdoor paths are open before adjusting`}</strong>
+            <p>{openBackdoor ? "Their arrows are the dark ones. The orange arrows carry the effect." : "The orange arrows carry the effect."}</p>
+          </div>
+        ) : stepFocus === "set" && analysis?.baselineSet?.length ? (
+          <div className="note">
+            <strong>Adjusting for {joinNames(analysis.baselineSet)}</strong>
+            <p>{analysis.forbiddenVariables.length ? "Those are outlined. Names struck through should not be adjusted for." : "Those are outlined."}</p>
           </div>
         ) : graph.nodes.length >= 2 && !graph.edges.length ? (
           <div className="note">

@@ -43,6 +43,8 @@ export interface EffectFit {
   adjustmentSet: string[];
   /** AIPW only: the two parts of the omitted-variable bound. See sensitivity.ts. */
   bound: { sigma2: number; nu2: number } | null;
+  /** AIPW only: the average outcome with and without treatment. */
+  potentialMeans: { treated: number; control: number } | null;
   /** Only when asked for, because these are large and fits are cached. */
   detail: AipwDetail | null;
 }
@@ -228,6 +230,7 @@ function fitRegression(
       influence,
       warnings,
       bound: null,
+      potentialMeans: null,
       detail: null,
       ...shared,
     },
@@ -407,6 +410,24 @@ function fitAipw(
   sigma2 /= count;
   nu2 /= count;
 
+  // The ATT's treated mean is observed, so its counterfactual mean is whatever the estimate leaves.
+  let treatedMean = 0;
+  let controlMean = 0;
+  if (estimand === "att") {
+    for (let row = 0; row < count; row += 1) {
+      treatedMean += (t[row] * y[row]) / share;
+    }
+    treatedMean /= count;
+    controlMean = treatedMean - estimate;
+  } else {
+    for (let row = 0; row < count; row += 1) {
+      treatedMean += mu1[row] + (t[row] * (y[row] - mu1[row])) / scores[row];
+      controlMean += mu0[row] + ((1 - t[row]) * (y[row] - mu0[row])) / (1 - scores[row]);
+    }
+    treatedMean /= count;
+    controlMean /= count;
+  }
+
   return {
     ok: true,
     fit: {
@@ -418,6 +439,7 @@ function fitAipw(
       influence: raw,
       warnings,
       bound: { sigma2, nu2 },
+      potentialMeans: { treated: treatedMean, control: controlMean },
       detail: options.detail ? aipwDetail(t, y, mu1, mu0, scores, raw, estimate, estimand, sigmaElements, nuElements) : null,
       ...shared,
     },
@@ -516,5 +538,6 @@ export function toEffectEstimate(fit: EffectFit, totalRows: number): EffectEstim
     adjustmentSet: fit.adjustmentSet,
     warnings: fit.warnings,
     snippetId: fit.method === "aipw" ? "python-aipw" : "python-statsmodels",
+    potentialMeans: fit.potentialMeans,
   };
 }

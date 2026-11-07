@@ -3,7 +3,8 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { analyze } from "../engine/analyze";
-import { useWorkbenchStore, type PanelTab } from "../store/useWorkbenchStore";
+import { firstVersion } from "../lib/graphVersions";
+import { useWorkbenchStore, type PanelTab, type ResultStepId } from "../store/useWorkbenchStore";
 import { DataStep } from "./DataStep";
 import { GraphStep } from "./GraphStep";
 import { ResultStep } from "./ResultStep";
@@ -20,9 +21,9 @@ function graph(edges: [string, string][], treatment = "X", outcome = "Y"): Graph
   };
 }
 
-function showResult(request: AnalysisRequest, tab: PanelTab = "assumptions") {
+function showResult(request: AnalysisRequest, tab: PanelTab = "assumptions", openStep: ResultStepId | null = null) {
   const analysis = analyze(request);
-  useWorkbenchStore.setState({ graph: request.graph, analysis, activeTab: tab });
+  useWorkbenchStore.setState({ graph: request.graph, ...firstVersion(request.graph), analysis, activeTab: tab, openStep });
   render(<ResultStep analysis={analysis} graph={request.graph} />);
   return analysis;
 }
@@ -39,7 +40,7 @@ beforeEach(() => {
   // Tell React that the test environment supports wrapped updates.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  useWorkbenchStore.setState({ activeTab: "assumptions", uploadedDataset: null, dataContext: {}, previewArrow: null, graphTextOpen: false });
+  useWorkbenchStore.setState({ activeTab: "assumptions", uploadedDataset: null, dataContext: {}, previewArrow: null, graphTextOpen: false, openStep: null, hoveredStep: null, tourStop: null });
 });
 
 afterEach(cleanup);
@@ -56,7 +57,7 @@ describe("the answer at the top of the result", () => {
   ];
 
   test("butterfly graph names the valid set, and the required collider is explained", () => {
-    showResult({ graph: graph(butterfly) }, "sets");
+    showResult({ graph: graph(butterfly) }, "steps", "set");
     expect(headline()).toBe("Adjust for M and U1");
     expect(screen.getAllByText("{M, U1}").length).toBeGreaterThan(0);
     expect(screen.getByText("Variables to use with care")).toBeTruthy();
@@ -65,7 +66,7 @@ describe("the answer at the top of the result", () => {
   });
 
   test("an empty recommendation reads as no adjustment needed", () => {
-    showResult({ graph: graph([["Z", "X"], ["X", "Y"]]) }, "sets");
+    showResult({ graph: graph([["Z", "X"], ["X", "Y"]]) }, "steps", "set");
     expect(headline()).toBe("No adjustment needed");
     expect(screen.getByText(/no open backdoor path/)).toBeTruthy();
     expect(screen.queryByText("Variables to use with care")).toBeNull();
@@ -122,7 +123,8 @@ describe("details and code", () => {
   test("propensity overlap and balance are shown for the recommended covariates only", () => {
     showResult(
       { graph: graph([["Z", "X"], ["Z", "Y"], ["X", "Y"]]), dataset: { filename: "s.csv", content: overlapFile(",unrelated") } },
-      "details",
+      "steps",
+      "data",
     );
     expect(screen.getByText("Treated propensity")).toBeTruthy();
     expect(screen.getByText("Common support")).toBeTruthy();
@@ -133,7 +135,7 @@ describe("details and code", () => {
   });
 
   test("the estimator shows the overlap caveat when the data checks flagged a problem", () => {
-    const analysis = showResult({ graph: graph([["Z", "X"], ["Z", "Y"], ["X", "Y"]]), dataset: { filename: "s.csv", content: overlapFile() } }, "code");
+    const analysis = showResult({ graph: graph([["Z", "X"], ["Z", "Y"], ["X", "Y"]]), dataset: { filename: "s.csv", content: overlapFile() } }, "steps", "estimate");
     expect(analysis.dataDiagnostics!.overlapDiagnostics!.warnings.length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: /Suggested estimator/ }));
     expect(screen.getByText(/overlap check flagged problems/)).toBeTruthy();
@@ -141,7 +143,7 @@ describe("details and code", () => {
   });
 
   test("paths can be filtered, and hovering one highlights it on the graph", () => {
-    const analysis = showResult({ graph: graph([["Z", "X"], ["Z", "Y"], ["X", "Y"]]) }, "details");
+    const analysis = showResult({ graph: graph([["Z", "X"], ["Z", "Y"], ["X", "Y"]]) }, "steps", "paths");
     const backdoor = analysis.paths.find((path) => path.category === "backdoor")!;
     const causal = analysis.paths.find((path) => path.category === "directed_causal")!;
     fireEvent.click(screen.getByRole("button", { name: "Causal" }));
@@ -197,7 +199,7 @@ describe("what the result rests on", () => {
     expect(text).not.toMatch(/\b(passed|confirmed|verified|validated)\b/);
   });
 
-  test("hovering previews the arrow without changing the graph, and only the button changes it", () => {
+  test("hovering previews the arrow, and comparing keeps the graph as it was and adds a copy with the arrow", () => {
     const spec = graph(drawnEdges);
     showResult({ graph: spec, dataset: { filename: "k.csv", content: knownFile() } });
     const card = screen.getAllByText("W → X")[0].closest("article")!;
@@ -208,8 +210,28 @@ describe("what the result rests on", () => {
     fireEvent.mouseLeave(card);
     expect(useWorkbenchStore.getState().previewArrow).toBeNull();
 
-    fireEvent.click(within(card).getByRole("button", { name: "Add this arrow" }));
-    expect(useWorkbenchStore.getState().graph.edges.map((edge) => edge.id)).toContain("W->X");
+    fireEvent.click(within(card).getByRole("button", { name: "Compare with this arrow" }));
+    const state = useWorkbenchStore.getState();
+    expect(state.graph.edges).toHaveLength(spec.edges.length);
+    expect(state.versions).toHaveLength(2);
+    expect(state.versions[1].graph.edges.map((edge) => edge.id)).toContain("W->X");
+    expect(state.activeTab).toBe("compare");
+  });
+
+  test("a conflict can also be compared as something unmeasured, because the data cannot say which it is", () => {
+    showResult({ graph: graph(drawnEdges), dataset: { filename: "k.csv", content: knownFile() } });
+    const card = screen.getAllByText("W → X")[0].closest("article")!;
+    fireEvent.click(within(card).getByRole("button", { name: "Or something unmeasured behind both" }));
+    const added = useWorkbenchStore.getState().versions[1].graph;
+    expect(added.nodes.find((node) => node.id === "U")!.observed).toBe(false);
+    expect(added.edges.map((edge) => edge.id)).toEqual(expect.arrayContaining(["U->W", "U->X"]));
+    expect(added.edges.map((edge) => edge.id)).not.toContain("W->X");
+  });
+
+  test("what every analysis assumes is said here", () => {
+    showResult({ graph: graph(drawnEdges) });
+    fireEvent.click(screen.getByRole("button", { name: /What every analysis assumes/ }));
+    expect(screen.getByText("DAG correctness is assumed")).toBeTruthy();
   });
 
   test("without data it lists the assumptions and says data would add to them", () => {
@@ -224,7 +246,8 @@ describe("what the result rests on", () => {
     showResult({ graph: spec });
     expect(screen.getByText(/No valid adjustment set exists/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "See which paths stay open" }));
-    expect(useWorkbenchStore.getState().activeTab).toBe("details");
+    expect(useWorkbenchStore.getState().activeTab).toBe("steps");
+    expect(useWorkbenchStore.getState().openStep).toBe("paths");
   });
 });
 
@@ -234,7 +257,7 @@ describe("the estimate", () => {
   const pickedScript = () => scriptPicker().selectedOptions[0].textContent;
 
   test("shows the number, and the same data under other choices", () => {
-    showResult(withData(), "sets");
+    showResult(withData(), "steps", "estimate");
     expect(document.querySelector(".effect__figure strong")!.textContent).toMatch(/^\d/);
     expect(screen.getByText("No adjustment")).toBeTruthy();
     expect(screen.getByText("Everything measured")).toBeTruthy();
@@ -267,7 +290,7 @@ describe("the estimate", () => {
   });
 
   test("testing a set records exactly the variables ticked", () => {
-    showResult(withData(), "sets");
+    showResult(withData(), "steps", "set");
     fireEvent.click(screen.getByRole("button", { name: /Test the set you used/ }));
     fireEvent.click(screen.getByLabelText("W"));
     fireEvent.click(screen.getByLabelText("M"));
@@ -280,7 +303,7 @@ describe("the estimate", () => {
     const chosen = { chosenSet: ["W", "Z"] };
     const analysis = analyze({ ...request, dataContext: chosen });
     expect(analysis.recommendedAdjustmentSet).toEqual(["Z"]);
-    useWorkbenchStore.setState({ graph: request.graph, analysis, dataContext: chosen });
+    useWorkbenchStore.setState({ graph: request.graph, ...firstVersion(request.graph), analysis, dataContext: chosen });
     render(<ResultStep analysis={analysis} graph={request.graph} />);
 
     expect(headline()).toBe("Adjust for W and Z");
@@ -383,7 +406,7 @@ describe("one task at a time", () => {
   test("each step shows only its own question", () => {
     const spec = graph([["Z", "X"], ["X", "Y"]]);
     const analysis = analyze({ graph: spec });
-    useWorkbenchStore.setState({ graph: spec, analysis, step: "graph" });
+    useWorkbenchStore.setState({ graph: spec, ...firstVersion(spec), analysis, step: "graph" });
     const { rerender } = render(<StepPanel analysis={analysis} graph={spec} />);
     expect(headline()).toBe("Draw your graph");
     expect(screen.queryByRole("tablist")).toBeNull();

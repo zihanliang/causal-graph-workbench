@@ -1,7 +1,7 @@
 import type { AnalysisResult, CodeSnippet, DataContext, GraphSpec } from "@causal-graph-workbench/shared";
 import { toPng } from "html-to-image";
 
-import { arrowLabel, effectSummary, repairSummary, roleCaption, shiftSummary } from "./format";
+import { arrowLabel, effectSummary, joinNames, repairSummary, roleCaption, shiftSummary } from "./format";
 import { buildMethodsText } from "./methods";
 import { isProjectSnapshot, type ProjectSnapshot } from "./projectSnapshot";
 
@@ -324,6 +324,73 @@ function buildResultLines(analysis: AnalysisResult): string[] {
   if (unmeasured.length) {
     lines.push("", "## Something Unmeasured", ...unmeasured);
   }
+  lines.push(...comparisonLines(analysis), ...scanLines(analysis));
+  return lines;
+}
+
+/** Every combination of the arrows marked as not settled, summarised by the answer each leads to. */
+function scanLines(analysis: AnalysisResult): string[] {
+  const { scan } = analysis;
+  if (!scan) {
+    return [];
+  }
+  const pairNames = scan.pairs.map(({ first, second }) => `${first} and ${second}`);
+  const lines = [
+    "",
+    "## Arrows Not Settled",
+    `Every combination was tried for ${joinNames(pairNames)}: an arrow one way, the other way, or none. ${scan.analysed} of ${scan.combinations} combinations were analysed${
+      scan.ruledOutByTiming || scan.ruledOutByCycle ? ` (${scan.ruledOutByTiming} ruled out by the timing of the variables, ${scan.ruledOutByCycle} by forming a cycle)` : ""
+    }${scan.truncated ? ", stopping at a time limit" : ""}.${scan.checksTruncated ? " The data checks stopped at a time limit, so they cover only some combinations." : ""}`,
+    "",
+  ];
+  for (const answer of scan.answers) {
+    const result = answer.adjustmentSet === null ? "no measured set is valid" : `adjust for ${formatSet(answer.adjustmentSet)}${answer.estimate ? `, giving ${effectSummary(answer.estimate)}` : ""}`;
+    lines.push(`- ${answer.combinations} ${answer.combinations === 1 ? "combination" : "combinations"}: ${result}.${answer.checked ? ` The data contradicts ${answer.contradicted} of the ${answer.checked} checked.` : ""}`);
+  }
+  for (const pair of scan.pairEffects) {
+    lines.push(`- ${pair.first} and ${pair.second}: ${pair.changesAnswer ? "this one changes the answer" : "this one does not change the answer"}.`);
+  }
+  if (scan.sharedSet) {
+    lines.push("", `${formatSet(scan.sharedSet.variables)} is valid under ${scan.sharedSet.validIn} of the ${scan.analysed} combinations${scan.sharedSet.estimate ? ` and gives ${effectSummary(scan.sharedSet.estimate)}` : ""}.`);
+  }
+  return lines;
+}
+
+/** The other graphs considered, in the same terms as the page. Everything above is about the graph on show. */
+function comparisonLines(analysis: AnalysisResult): string[] {
+  const { comparison } = analysis;
+  if (!comparison) {
+    return [];
+  }
+  const nameOf = (id: string) => comparison.graphs.find((graph) => graph.id === id)?.name ?? id;
+  const shown = comparison.shownId ? nameOf(comparison.shownId) : null;
+  const lines = [
+    "",
+    "## Other Graphs Compared",
+    `${shown ? `This report describes ${shown}. ` : ""}${comparison.graphs.length} graphs were compared on the same data. The data can rule a graph out, but it cannot show that one is right, so they are not ranked.`,
+    "",
+  ];
+  for (const graph of comparison.graphs) {
+    const change = graph.changeFromFirst ? ` (${graph.changeFromFirst})` : "";
+    if (graph.problem) {
+      lines.push(`- ${graph.name}${change}: cannot be analysed. ${graph.problem}`);
+      continue;
+    }
+    const answer = graph.adjustmentSet === null ? "no measured set is valid" : `adjust for ${formatSet(graph.adjustmentSet)}${graph.estimate ? `, giving ${effectSummary(graph.estimate)}` : ""}`;
+    const contradicted = graph.checks?.filter((check) => check.conflict).length ?? 0;
+    const data = graph.checks === null ? "" : graph.checks.length ? ` The data contradicts ${contradicted} of the ${graph.checks.length} independences it implies.` : " It implies no independence that could be tested.";
+    lines.push(`- ${graph.name}${change}: ${answer}.${data}${graph.timingConflict ? ` ${graph.timingConflict}` : ""}`);
+  }
+  const { sharedSet } = comparison;
+  if (sharedSet) {
+    lines.push(
+      "",
+      `${formatSet(sharedSet.variables)} is valid under ${joinNames(sharedSet.validIn.map(nameOf))}${sharedSet.estimate ? ` and gives ${effectSummary(sharedSet.estimate)}` : ""}. This holds only if one of those graphs is right.`,
+    );
+  }
+  for (const group of comparison.sameClaims) {
+    lines.push("", `${joinNames(group.map(nameOf))} imply the same independences, so the checks here cannot separate them.`);
+  }
   return lines;
 }
 
@@ -629,9 +696,10 @@ export function buildGraphSvg(graph: GraphSpec, analysis: AnalysisResult | null)
     const [x1, y1] = svgBorderPoint(source, target);
     const [x2, y2] = svgBorderPoint(target, source);
     const isCausal = causal.has(`${edge.source}->${edge.target}`);
-    lines.push(
-      `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${isCausal ? "#c2552b" : "#8a8f94"}" stroke-width="${isCausal ? 2.25 : 1.5}" marker-end="url(#${isCausal ? "arrow-causal" : "arrow"})" />`,
-    );
+    // As on the canvas: an arrow that is there only because time order allows it stays out of the way.
+    const stroke = isCausal ? "#c2552b" : edge.background ? "#d3d6da" : "#8a8f94";
+    const width = isCausal ? 2.25 : edge.background ? 1 : 1.5;
+    lines.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${width}" marker-end="url(#${isCausal ? "arrow-causal" : "arrow"})" />`);
   }
 
   const font = `font-family="'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif" text-anchor="middle"`;

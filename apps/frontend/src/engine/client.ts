@@ -1,7 +1,6 @@
 import type { AnalysisRequest, AnalysisResult } from "@causal-graph-workbench/shared";
 
-import type { AuditSnapshot } from "./audit";
-import { mergeUpdate } from "./mergeUpdate";
+import { mergeUpdate, type AnalysisUpdate } from "./mergeUpdate";
 
 /** A newer request replaced this one before it finished. */
 export class SupersededError extends Error {
@@ -23,8 +22,8 @@ interface Job {
 
 type WorkerReply =
   | { id: number; kind: "structure"; result: AnalysisResult }
-  | { id: number; kind: "update"; update: AuditSnapshot }
-  | { id: number; kind: "done"; result?: AnalysisResult | null; update: AuditSnapshot | null }
+  | { id: number; kind: "update"; update: AnalysisUpdate }
+  | { id: number; kind: "done"; result?: AnalysisResult | null; update: AnalysisUpdate | null }
   | { id: number; kind: "error"; error: string };
 
 /**

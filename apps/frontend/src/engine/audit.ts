@@ -36,14 +36,14 @@ import { computeEValue, startRobustness } from "./sensitivity";
 import { holmAdjust, testConditionalIndependence, type TestVariable } from "./stats/independence";
 
 const GRAPH_BUDGET_MS = 4000;
-const TEST_BUDGET_MS = 8000;
+export const TEST_BUDGET_MS = 8000;
 const ESTIMATE_BUDGET_MS = 8000;
-const SLICE_MS = 16;
+export const SLICE_MS = 16;
 const MAX_TEST_ROWS = 20_000;
 const MIN_TEST_ROWS = 30;
 const MAX_TEST_LEVELS = 30;
 const MAX_OTHER_MINIMAL_SETS = 4;
-const CONFLICT_LEVEL = 0.05;
+export const CONFLICT_LEVEL = 0.05;
 
 /** A shift smaller than this many standard errors of the current estimate is treated as small. */
 const MOVES_ESTIMATE_SE = 0.5;
@@ -255,7 +255,7 @@ function explain(
   };
 }
 
-interface TestSpec {
+export interface TestSpec {
   left: string;
   right: string;
   given: string[];
@@ -323,18 +323,36 @@ function sampleRows(rows: number[], size: number): number[] {
   return shuffled.slice(0, size).sort((a, b) => a - b);
 }
 
-interface RawTest {
+export interface RawTest {
   pValue: number;
   correlation: number;
   rowsUsed: number;
   sampled: boolean;
 }
 
+const pairKey = (spec: TestSpec) => sortedSet([spec.left, spec.right]).join("|");
+
+/** With Holm's adjustment across exactly these tests. */
+export function toIndependenceTests(raw: { spec: TestSpec; result: RawTest }[]): ImpliedIndependenceTest[] {
+  const adjusted = holmAdjust(raw.map((item) => item.result.pValue));
+  return raw.map(({ spec, result }, index) => ({
+    id: `test:${pairKey(spec)}`,
+    left: spec.left,
+    right: spec.right,
+    given: spec.given,
+    pValue: result.pValue,
+    adjustedPValue: adjusted[index],
+    conflict: adjusted[index] < CONFLICT_LEVEL,
+    correlation: result.correlation,
+    rowsUsed: result.rowsUsed,
+  }));
+}
+
 const testCache = new WeakMap<DataTable, Map<string, RawTest | null>>();
 const fitCache = new WeakMap<DataTable, Map<string, FitOutcome>>();
 const MAX_CACHED_FITS = 64;
 
-function runTest(spec: TestSpec, context: EffectContext): RawTest | null {
+export function runTest(spec: TestSpec, context: EffectContext): RawTest | null {
   const key = [spec.left, spec.right, ...spec.given]
     .map((node) => {
       const bound = context.columnOf(node);
@@ -372,7 +390,7 @@ function runTest(spec: TestSpec, context: EffectContext): RawTest | null {
   return result;
 }
 
-function cachedFit(context: EffectContext, set: string[], complete: string[]): FitOutcome {
+export function cachedFit(context: EffectContext, set: string[], complete: string[]): FitOutcome {
   const key = [
     context.treatment.column,
     context.treatment.type,
@@ -643,7 +661,6 @@ export function* runAudit(input: AuditInput): Generator<AuditSnapshot, void, voi
   const relevant = new Set(
     assumptions.filter((item) => item.edit === "add").map((item) => sortedSet([item.source, item.target]).join("|")),
   );
-  const pairKey = (spec: TestSpec) => sortedSet([spec.left, spec.right]).join("|");
   const ordered = [...specs].sort((a, b) => Number(relevant.has(pairKey(b))) - Number(relevant.has(pairKey(a))));
 
   const raw: { spec: TestSpec; result: RawTest }[] = [];
@@ -665,23 +682,12 @@ export function* runAudit(input: AuditInput): Generator<AuditSnapshot, void, voi
     }
   }
 
-  const adjusted = holmAdjust(raw.map((item) => item.result.pValue));
   tests.length = 0;
-  raw.forEach(({ spec, result }, index) => {
+  tests.push(...toIndependenceTests(raw));
+  raw.forEach(({ result }) => {
     if (result.sampled) {
       testSampleSize = result.rowsUsed;
     }
-    tests.push({
-      id: `test:${pairKey(spec)}`,
-      left: spec.left,
-      right: spec.right,
-      given: spec.given,
-      pValue: result.pValue,
-      adjustedPValue: adjusted[index],
-      conflict: adjusted[index] < CONFLICT_LEVEL,
-      correlation: result.correlation,
-      rowsUsed: result.rowsUsed,
-    });
   });
   const testByPair = new Map(tests.map((test) => [sortedSet([test.left, test.right]).join("|"), test]));
   for (const assumption of assumptions) {

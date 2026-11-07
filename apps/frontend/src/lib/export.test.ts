@@ -79,10 +79,16 @@ describe("the printable report", () => {
         outcomeId: "Y",
       };
       const withBlank = { filename: "s.csv", content: ["X,Y,Z", ...rows, "1,,3"].join("\n") };
+      const versions = [
+        { id: "graph-a", name: "Graph A", graph },
+        { id: "graph-b", name: "Graph B", graph: hidden },
+      ];
       const cases = [
         ["with data", graph, analyze({ graph, dataset: withBlank }), true],
         ["without data", graph, analyze({ graph }), false],
         ["with no valid adjustment set", hidden, analyze({ graph: hidden }), false],
+        ["comparing graphs", graph, analyze({ graph, dataset: withBlank, versions, activeVersionId: "graph-a" }), true],
+        ["with arrows marked as not sure", graph, analyze({ graph, dataset: withBlank, uncertainPairs: [{ first: "Z", second: "X" }, { first: "Z", second: "Y" }] }), true],
       ] as const;
       // The variables here are single letters, so nothing shaped like these comes from the user.
       const internal = /\b[a-z]+_[a-z_]+\b|\b\w+=\w+/g;
@@ -311,6 +317,8 @@ describe("export helpers", () => {
         effect: null,
         sensitivity: null,
         audit: null,
+      comparison: null,
+      scan: null,
         reproduction: null,
         assumptions: [
           {
@@ -373,6 +381,8 @@ describe("export helpers", () => {
         effect: null,
         sensitivity: null,
         audit: null,
+      comparison: null,
+      scan: null,
         reproduction: null,
         assumptions: [],
         estimatorRecommendations: [],
@@ -483,5 +493,81 @@ describe("export helpers", () => {
     expect(document.body.appendChild).toHaveBeenCalledWith(fakeFrame);
     expect(fakePrintWindow.focus).toHaveBeenCalled();
     expect(fakePrintWindow.print).toHaveBeenCalled();
+  });
+});
+
+describe("a report when graphs were compared", () => {
+  const spec = (arrows: [string, string][]) => ({
+    nodes: [...new Set(arrows.flat())].map((id) => ({ id, label: id, x: 0, y: 0 })),
+    edges: arrows.map(([source, target]) => ({ id: `${source}->${target}`, source, target })),
+    treatmentId: "X",
+    outcomeId: "Y",
+  });
+  const first = spec([
+    ["Z", "X"],
+    ["Z", "Y"],
+    ["X", "Y"],
+    ["W", "Y"],
+  ]);
+  const second = spec([
+    ["Z", "X"],
+    ["Z", "Y"],
+    ["X", "Y"],
+    ["W", "Y"],
+    ["W", "X"],
+  ]);
+  let state = 7;
+  const random = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+  const rows = Array.from({ length: 400 }, () => {
+    const z = random() - 0.5;
+    const w = random() - 0.5;
+    const x = random() < 0.5 + 0.6 * w + 0.3 * z ? 1 : 0;
+    return `${x},${(x + 2 * z + 2 * w + random()).toFixed(3)},${z.toFixed(3)},${w.toFixed(3)}`;
+  });
+  const dataset = { filename: "s.csv", content: ["X,Y,Z,W", ...rows].join("\n") };
+  const analysis = analyze({
+    graph: second,
+    dataset,
+    versions: [
+      { id: "graph-a", name: "Graph A", graph: first },
+      { id: "graph-b", name: "Graph B", graph: second },
+    ],
+    activeVersionId: "graph-b",
+  });
+
+  test("the Markdown says which graph it describes, and what each of the others leads to", () => {
+    const report = buildMarkdownReport(second, analysis, { hasData: true });
+    expect(report).toContain("## Other Graphs Compared");
+    expect(report).toContain("This report describes Graph B. 2 graphs were compared on the same data.");
+    expect(report).toMatch(/- Graph A: adjust for \{Z\}, giving [\d.-]+ \(95% CI/);
+    expect(report).toMatch(/- Graph B \(\+ W → X\): adjust for \{W, Z\}, giving [\d.-]+ \(95% CI/);
+    expect(report).toMatch(/The data contradicts \d+ of the \d+ independences it implies/);
+    expect(report).toContain("cannot show that one is right");
+    expect(report).toContain("is valid under Graph A and Graph B");
+  });
+
+  test("the printed report says the same", () => {
+    const html = buildPrintableReportHtml(second, analysis, { hasData: true });
+    expect(html).toContain("<h2>Other Graphs Compared</h2>");
+    expect(html).toContain("This report describes Graph B.");
+  });
+
+  test("a single graph has no such section", () => {
+    const alone = analyze({ graph: first, dataset });
+    expect(buildMarkdownReport(first, alone, { hasData: true })).not.toContain("Other Graphs Compared");
+  });
+
+  test("arrows marked as not sure are reported by the answers they lead to", () => {
+    const marked = analyze({ graph: first, dataset, uncertainPairs: [{ first: "W", second: "X" }] });
+    const report = buildMarkdownReport(first, marked, { hasData: true });
+    expect(report).toContain("## Arrows Not Settled");
+    expect(report).toContain("Every combination was tried for W and X: an arrow one way, the other way, or none.");
+    expect(report).toMatch(/\d combinations?: adjust for \{/);
+    expect(report).toContain("W and X: this one changes the answer.");
+    expect(buildPrintableReportHtml(first, marked, { hasData: true })).toContain("<h2>Arrows Not Settled</h2>");
+    expect(buildMarkdownReport(first, analyze({ graph: first, dataset }), { hasData: true })).not.toContain("Arrows Not Settled");
   });
 });

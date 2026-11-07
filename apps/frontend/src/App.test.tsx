@@ -40,6 +40,8 @@ const emptyResult = {
   effect: null,
   sensitivity: null,
   audit: null,
+  comparison: null,
+  scan: null,
   reproduction: null,
   assumptions: [],
   estimatorRecommendations: [],
@@ -115,6 +117,28 @@ describe("App analysis sync", () => {
 
     expect(analyzeGraph).toHaveBeenCalledTimes(2);
     expect(analyzeGraph.mock.calls[1][0].graph.nodes).toHaveLength(4);
+  });
+
+  test("showing another graph keeps the comparison on the page until the new one arrives", async () => {
+    const comparison = { status: "complete", shownId: "graph-a", graphs: [], answers: [], sharedSet: null, sameClaims: [] };
+    useWorkbenchStore.getState().addVersion({ edit: "add", source: "Z", target: "Y" });
+    analyzeGraph.mockResolvedValueOnce({ ...emptyResult, comparison });
+    render(<App />);
+    await settle();
+    expect(useWorkbenchStore.getState().analysis?.comparison?.shownId).toBe("graph-a");
+
+    analyzeGraph.mockResolvedValueOnce({ ...emptyResult, comparison: null });
+    act(() => useWorkbenchStore.getState().selectVersion("graph-b"));
+    await settle();
+    expect(useWorkbenchStore.getState().analysis?.comparison?.shownId).toBe("graph-b");
+
+    // Changing a graph changes the comparison, so the old one must not linger.
+    analyzeGraph.mockResolvedValueOnce({ ...emptyResult, comparison: null });
+    act(() => useWorkbenchStore.getState().connectNodes("Y", "Z"));
+    await settle();
+    expect(useWorkbenchStore.getState().analysis?.comparison).toBeNull();
+    act(() => useWorkbenchStore.getState().removeVersion("graph-b"));
+    await settle();
   });
 
   test("dragging a node does not rerun the analysis", async () => {
