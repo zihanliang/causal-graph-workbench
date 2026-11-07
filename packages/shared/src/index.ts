@@ -32,6 +32,8 @@ export interface GraphEdge {
   id: string;
   source: string;
   target: string;
+  /** Drawn faintly, because it is there only because time order allows it, not because anyone claimed it. */
+  background?: boolean;
 }
 
 export interface GraphSpec {
@@ -60,10 +62,34 @@ export interface UploadedDataset {
   delimiter?: string | null;
 }
 
+/** One way the causal story could go. Every version answers the same question, on the same data. */
+export interface GraphVersion {
+  id: string;
+  name: string;
+  graph: GraphSpec;
+}
+
+/** Two variables where it is not clear whether an arrow joins them, or which way it runs. */
+export interface UncertainPair {
+  first: string;
+  second: string;
+}
+
+/** One way a pair could be: an arrow one way, the other way, or none. */
+export interface PairState extends UncertainPair {
+  state: "first_to_second" | "second_to_first" | "none";
+}
+
 export interface AnalysisRequest {
   graph: GraphSpec;
   dataContext?: DataContext;
   dataset?: UploadedDataset | null;
+  /** When two or more, they are also compared. Includes the graph above. */
+  versions?: GraphVersion[];
+  /** Which of the versions is the graph above. */
+  activeVersionId?: string;
+  /** Every combination of these is tried on the graph above. */
+  uncertainPairs?: UncertainPair[];
 }
 
 export interface Issue {
@@ -287,6 +313,8 @@ export interface EffectEstimate {
   warnings: string[];
   /** The generated snippet that reproduces this number. */
   snippetId: string;
+  /** AIPW only: the average outcome with and without treatment, whose difference is the estimate. */
+  potentialMeans: { treated: number; control: number } | null;
 }
 
 export interface EffectComparison {
@@ -423,6 +451,89 @@ export interface AssumptionAudit {
   testSampleSize: number | null;
 }
 
+/** What one graph leads to, on the same data as the others. */
+export interface GraphVersionResult {
+  id: string;
+  name: string;
+  /** How it differs from the first graph, in plain words. Null for the first graph itself. */
+  changeFromFirst: string | null;
+  /** Why this graph cannot be analysed, or null when it can. */
+  problem: string | null;
+  /** Null when no measured set is valid, or the graph cannot be analysed. */
+  adjustmentSet: string[] | null;
+  estimate: EffectEstimate | null;
+  unavailableReason: string | null;
+  /** Null until this graph has been reached. */
+  checks: ImpliedIndependenceTest[] | null;
+  /** The time limit ran out before every independence was tested. */
+  checksTruncated: boolean;
+  /** Arrows that run backwards given the timing that was set, or null. */
+  timingConflict: string | null;
+}
+
+/** Graphs that lead to the same set give the same number, however different their stories are. */
+export interface ComparisonAnswer {
+  /** Null when these graphs leave no valid set. */
+  adjustmentSet: string[] | null;
+  estimate: EffectEstimate | null;
+  graphIds: string[];
+}
+
+/** One set that is valid under several graphs, so that choosing between them is not needed. */
+export interface SharedAdjustmentSet {
+  variables: string[];
+  validIn: string[];
+  notValidIn: string[];
+  estimate: EffectEstimate | null;
+}
+
+export interface GraphComparison {
+  status: "running" | "complete";
+  /** The graph the rest of the result is about. */
+  shownId: string | null;
+  graphs: GraphVersionResult[];
+  answers: ComparisonAnswer[];
+  /** Null unless a set is valid under graphs that would otherwise lead to different answers. */
+  sharedSet: SharedAdjustmentSet | null;
+  /** Groups of graphs that imply the same independences, so that the checks here cannot separate them. */
+  sameClaims: string[][];
+}
+
+/** What some of the combinations of unsure arrows lead to. */
+export interface ScanAnswer {
+  /** Null when these combinations leave no valid set. */
+  adjustmentSet: string[] | null;
+  estimate: EffectEstimate | null;
+  combinations: number;
+  /** Of those, how many had checks run, and how many of those the data contradicts. */
+  checked: number;
+  contradicted: number;
+  /** The combination leading here that changes the graph least, preferring one the data does not contradict. */
+  example: PairState[];
+  /** How that combination differs from the graph on show. Null when it is the graph on show. */
+  exampleChange: string | null;
+}
+
+export interface UncertaintyScan {
+  status: "running" | "complete";
+  pairs: UncertainPair[];
+  /** Every combination there is, including those ruled out. */
+  combinations: number;
+  analysed: number;
+  /** Would run backwards given the timing that was set. */
+  ruledOutByTiming: number;
+  /** Would form a cycle with the other arrows. */
+  ruledOutByCycle: number;
+  answers: ScanAnswer[];
+  /** For each pair, whether changing only that pair ever changes the answer. */
+  pairEffects: (UncertainPair & { changesAnswer: boolean })[];
+  sharedSet: { variables: string[]; validIn: number; estimate: EffectEstimate | null } | null;
+  /** The time limit ran out before every combination was analysed. */
+  truncated: boolean;
+  /** The time limit ran out before every combination was checked against the data. */
+  checksTruncated: boolean;
+}
+
 export interface ExplainableSelection {
   kind: "node" | "path" | "adjustment" | "estimator";
   id: string;
@@ -464,6 +575,10 @@ export interface AnalysisResult {
   /** How strong something unmeasured would have to be. Null without an estimate. */
   sensitivity: SensitivitySummary | null;
   audit: AssumptionAudit | null;
+  /** Null with a single graph, and until the analysis of the current graph has finished. */
+  comparison: GraphComparison | null;
+  /** Null without unsure arrows, and until the stages before it have finished. */
+  scan: UncertaintyScan | null;
   reproduction: ReproductionInputs | null;
   assumptions: AssumptionItem[];
   estimatorRecommendations: EstimatorRecommendation[];
@@ -478,4 +593,4 @@ export interface GraphTemplate {
   graph: GraphSpec;
 }
 
-export const CONTRACT_VERSION = "0.4.0";
+export const CONTRACT_VERSION = "0.6.0";

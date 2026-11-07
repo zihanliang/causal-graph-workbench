@@ -13,6 +13,7 @@ export function DataStep({ analysis }: { analysis: AnalysisResult | null }) {
   const addColumnsAsVariables = useWorkbenchStore((state) => state.addColumnsAsVariables);
   const setDataContext = useWorkbenchStore((state) => state.setDataContext);
   const setStep = useWorkbenchStore((state) => state.setStep);
+  const isTouring = useWorkbenchStore((state) => state.tourStop !== null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const diagnostics = analysis?.dataDiagnostics;
@@ -180,14 +181,16 @@ export function DataStep({ analysis }: { analysis: AnalysisResult | null }) {
         </Disclosure>
       </div>
 
-      <footer className="panel__foot">
-        <button type="button" className="btn btn--primary" onClick={() => setStep("result")}>
-          See the result
-        </button>
-        <button type="button" className="btn btn--text" onClick={() => setStep("graph")}>
-          Back to the graph
-        </button>
-      </footer>
+      {isTouring ? null : (
+        <footer className="panel__foot">
+          <button type="button" className="btn btn--primary" onClick={() => setStep("result")}>
+            See the result
+          </button>
+          <button type="button" className="btn btn--text" onClick={() => setStep("graph")}>
+            Back to the graph
+          </button>
+        </footer>
+      )}
     </>
   );
 }

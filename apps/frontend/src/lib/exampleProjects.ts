@@ -35,7 +35,7 @@ export const exampleProjects: ExampleProject[] = [
     id: "training-program",
     name: "Training program: one arrow is wrong",
     description:
-      "Simulated study of 2,000 workers where the true effect is 2.8. The graph leaves out one real arrow. Open Assumptions to see the app find it.",
+      "Simulated study of 2,000 workers where the true effect is 2.8. The graph leaves out one real arrow, and the walkthrough shows the app finding it.",
     badge: "data-enhanced",
     graph: {
       nodes: [

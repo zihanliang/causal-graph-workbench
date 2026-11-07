@@ -1,7 +1,7 @@
 import type { AnalysisRequest, AnalysisResult } from "@causal-graph-workbench/shared";
 
 import { analyzeInStages } from "./analyze";
-import type { AuditSnapshot } from "./audit";
+import { combineUpdates, type AnalysisUpdate } from "./mergeUpdate";
 
 /** Sending a result to the page has a cost, so progress is published a few times a second at most. */
 const PUBLISH_INTERVAL_MS = 150;
@@ -23,13 +23,13 @@ self.onmessage = async (event: MessageEvent<{ id: number; request: AnalysisReque
     let structure: AnalysisResult | null = null;
     let structureSent = false;
     let lastPublished = 0;
-    let unpublished: AuditSnapshot | null = null;
+    let unpublished: AnalysisUpdate | null = null;
 
     for (const stage of analyzeInStages(request)) {
       if ("structure" in stage) {
         structure = stage.structure;
       } else {
-        unpublished = stage.update;
+        unpublished = combineUpdates(unpublished, stage.update);
       }
       const now = performance.now();
       if (!structureSent && now - started >= STRUCTURE_HOLD_MS && structure) {

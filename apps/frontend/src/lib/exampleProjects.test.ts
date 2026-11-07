@@ -5,6 +5,8 @@ import { describe, expect, test } from "vitest";
 
 import { analyze } from "../engine/analyze";
 import { exampleProjects } from "./exampleProjects";
+import { applyChange } from "./graphVersions";
+import { TOUR_STOPS } from "./tour";
 
 const TRUE_EFFECT = 2.8;
 
@@ -45,6 +47,31 @@ describe("training program example", () => {
     expect(startScreen).toContain(`from ${estimate.estimate.toFixed(3)} to ${top.alternativeEstimate!.estimate.toFixed(3)}`);
     expect(startScreen).toContain(`The true effect in`);
     expect(startScreen).toContain(`is ${TRUE_EFFECT}.`);
+  });
+
+  test("the figures quoted in the walkthrough are the ones the example really gives", () => {
+    const quoted = TOUR_STOPS.map((stop) => stop.body).join(" ");
+    expect(quoted).toContain(`from ${estimate.estimate.toFixed(3)} to ${top.alternativeEstimate!.estimate.toFixed(3)}`);
+    expect(quoted).toContain(`is ${TRUE_EFFECT}.`);
+    expect(quoted).toContain(`${result.dataDiagnostics!.rowCount.toLocaleString("en-US")} workers`);
+  });
+
+  test("what the walkthrough says about comparing is true of this example", () => {
+    const last = TOUR_STOPS[TOUR_STOPS.length - 1];
+    const second = applyChange(example.graph, last.adds!);
+    const comparison = analyze({
+      graph: example.graph,
+      dataContext: example.dataContext,
+      dataset: { filename: example.datasetFilename, content },
+      versions: [
+        { id: "a", name: "Graph A", graph: example.graph },
+        { id: "b", name: "Graph B", graph: second },
+      ],
+      activeVersionId: "a",
+    }).comparison!;
+    expect(last.body).toMatch(/valid under both/);
+    expect(comparison.sharedSet!.validIn).toEqual(["a", "b"]);
+    expect(comparison.sharedSet!.notValidIn).toEqual([]);
   });
 
   test("no arrow on the drawing, nor the missing one it is about, runs behind another variable", () => {

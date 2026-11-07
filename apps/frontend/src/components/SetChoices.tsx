@@ -5,80 +5,58 @@ import { effectSummary, formatSet } from "../lib/format";
 import { useWorkbenchStore } from "../store/useWorkbenchStore";
 import { Disclosure } from "./ui";
 
-export function SetsTab({ analysis }: { analysis: AnalysisResult | null }) {
+function useSetChoice(analysis: AnalysisResult) {
+  const setDataContext = useWorkbenchStore((state) => state.setDataContext);
+  const recommended = analysis.recommendedAdjustmentSet.join();
+  return (variables: string[]) => setDataContext({ chosenSet: variables.join() === recommended ? null : variables });
+}
+
+/** What the same file gives under other choices of set, including the mistakes people commonly make. */
+export function SameDataComparison({ analysis }: { analysis: AnalysisResult }) {
+  const useSet = useSetChoice(analysis);
+  const comparisons = analysis.effect?.comparisons ?? [];
+  const baseline = analysis.baselineSet?.join() ?? "";
+  if (!comparisons.length) {
+    return null;
+  }
+  return (
+    <section className="group">
+      <h2>The same data, adjusted differently</h2>
+      <p className="hint">Only valid sets estimate the causal effect if your graph is right. Invalid ones show the size of the mistake.</p>
+      <div className="item-list">
+        {comparisons.map((row) => (
+          <ComparisonRow
+            key={row.id}
+            row={row}
+            isCurrent={row.variables.join() === baseline}
+            onUse={row.isValid && row.variables.join() !== baseline ? () => useSet(row.variables) : null}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Which sets the graph allows, which variables to leave out, and a way to test the set someone already used. */
+export function SetChoices({ analysis }: { analysis: AnalysisResult }) {
   const dataContext = useWorkbenchStore((state) => state.dataContext);
   const setDataContext = useWorkbenchStore((state) => state.setDataContext);
   const setSelectedExplainable = useWorkbenchStore((state) => state.setSelectedExplainable);
   const [draft, setDraft] = useState<string[]>(dataContext.chosenSet ?? []);
+  const useSet = useSetChoice(analysis);
 
-  if (!analysis) {
-    return <p className="empty">This appears as soon as the graph has been processed.</p>;
-  }
-
-  const recommended = analysis.recommendedAdjustmentSet.join();
   const baseline = analysis.baselineSet?.join() ?? "";
-  const useSet = (variables: string[]) => setDataContext({ chosenSet: variables.join() === recommended ? null : variables });
-  const comparisons = analysis.effect?.comparisons ?? [];
   const minimal = analysis.adjustmentSets.filter((item) => item.isMinimal);
   const larger = analysis.adjustmentSets.filter((item) => !item.isMinimal);
   const measured = (analysis.dataDiagnostics?.variableBindings ?? [])
     .filter((binding) => binding.matched)
     .map((binding) => binding.nodeId)
     .filter((node) => analysis.nodeRoles.some((role) => role.nodeId === node));
-
   const showSet = (item: AdjustmentSetSummary) => setSelectedExplainable({ kind: "adjustment", id: item.id });
 
   return (
     <div className="stack">
-      {comparisons.length ? (
-        <section className="group">
-          <h2>The same data, adjusted differently</h2>
-          <p className="hint">Only valid sets estimate the causal effect if your graph is right. Invalid ones show the size of the mistake.</p>
-          <div className="item-list">
-            {comparisons.map((row) => (
-              <ComparisonRow
-                key={row.id}
-                row={row}
-                isCurrent={row.variables.join() === baseline}
-                onUse={row.isValid && row.variables.join() !== baseline ? () => useSet(row.variables) : null}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {measured.length ? (
-        <Disclosure title="Test the set you used">
-          <p className="hint">Tick the variables you adjusted for. If the set is valid it becomes your current set; if not, you will see why.</p>
-          <div className="set-picker">
-            {measured.map((node) => (
-              <label key={node} className="check">
-                <input type="checkbox" checked={draft.includes(node)} onChange={(event) => setDraft(event.target.checked ? [...draft, node] : draft.filter((item) => item !== node))} />
-                <span>{node}</span>
-              </label>
-            ))}
-          </div>
-          <div className="button-row">
-            <button type="button" className="btn" onClick={() => setDataContext({ chosenSet: draft })}>
-              Test this set
-            </button>
-            {dataContext.chosenSet ? (
-              <button
-                type="button"
-                className="btn btn--text"
-                onClick={() => {
-                  setDraft([]);
-                  setDataContext({ chosenSet: null });
-                }}
-              >
-                Back to the recommended set
-              </button>
-            ) : null}
-          </div>
-        </Disclosure>
-      ) : null}
-
-      <Disclosure title="Smallest valid sets" count={minimal.length} defaultOpen={!comparisons.length}>
+      <Disclosure title="Smallest valid sets" count={minimal.length} defaultOpen>
         {minimal.length ? (
           <div className="item-list">
             {minimal.map((item) => (
@@ -129,6 +107,37 @@ export function SetsTab({ analysis }: { analysis: AnalysisResult | null }) {
               </div>
             ))}
           </dl>
+        </Disclosure>
+      ) : null}
+
+      {measured.length ? (
+        <Disclosure title="Test the set you used">
+          <p className="hint">Tick the variables you adjusted for. If the set is valid it becomes your current set; if not, you will see why.</p>
+          <div className="set-picker">
+            {measured.map((node) => (
+              <label key={node} className="check">
+                <input type="checkbox" checked={draft.includes(node)} onChange={(event) => setDraft(event.target.checked ? [...draft, node] : draft.filter((item) => item !== node))} />
+                <span>{node}</span>
+              </label>
+            ))}
+          </div>
+          <div className="button-row">
+            <button type="button" className="btn" onClick={() => setDataContext({ chosenSet: draft })}>
+              Test this set
+            </button>
+            {dataContext.chosenSet ? (
+              <button
+                type="button"
+                className="btn btn--text"
+                onClick={() => {
+                  setDraft([]);
+                  setDataContext({ chosenSet: null });
+                }}
+              >
+                Back to the recommended set
+              </button>
+            ) : null}
+          </div>
         </Disclosure>
       ) : null}
     </div>

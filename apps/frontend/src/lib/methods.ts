@@ -159,23 +159,25 @@ function sensitivityParagraph(graph: GraphSpec, analysis: AnalysisResult, cited:
     cited.add("cinelli");
     const reachesNoEffect =
       robustness.valueForInterval > 0
-        ? `and ${percent(robustness.valueForInterval)} for its 95% confidence interval to include no effect`
+        ? `, and ${percent(robustness.valueForInterval)} for its 95% confidence interval to include no effect`
         : "; its 95% confidence interval already includes no effect";
     if (robustness.basis === "aipw") {
       cited.add("chernozhukov");
       sentences.push(
-        `To assess unmeasured confounding we computed the robustness value (Cinelli & Hazlett, 2020) with the omitted-variable bound for doubly robust estimators of Chernozhukov et al. (2022). A confounder would need to explain ${percent(robustness.value)} of the residual variation in both ${outcome} and the treatment weights to explain away the estimated effect, ${reachesNoEffect}.`,
+        `To assess unmeasured confounding we computed the robustness value (Cinelli & Hazlett, 2020) with the omitted-variable bound for doubly robust estimators of Chernozhukov et al. (2022). A confounder would need to explain ${percent(robustness.value)} of the residual variation in both ${outcome} and the treatment weights to explain away the estimated effect${reachesNoEffect}.`,
       );
     } else {
       const model = robustness.basis === "linear_probability" ? ", on a linear probability model with the same covariates because the bound does not apply to an odds ratio directly" : "";
       sentences.push(
-        `To assess unmeasured confounding we computed the robustness value (Cinelli & Hazlett, 2020)${model}. A confounder would need to explain ${percent(robustness.value)} of the residual variance of both ${treatment} and ${outcome} to explain away the estimated effect, ${reachesNoEffect}.`,
+        `To assess unmeasured confounding we computed the robustness value (Cinelli & Hazlett, 2020)${model}. A confounder would need to explain ${percent(robustness.value)} of the residual variance of both ${treatment} and ${outcome} to explain away the estimated effect${reachesNoEffect}.`,
       );
     }
     const strongest = robustness.benchmarks[0];
     if (strongest) {
       sentences.push(
-        `For comparison, a confounder as strong as ${strongest.variable}, the strongest measured covariate by this measure, could account for about ${percent(Math.min(strongest.shareOfEstimate, 9.99))} of the estimate.`,
+        strongest.shareOfEstimate >= 1
+          ? `For comparison, a confounder as strong as ${strongest.variable}, the strongest measured covariate by this measure, could explain away the whole estimate.`
+          : `For comparison, a confounder as strong as ${strongest.variable}, the strongest measured covariate by this measure, could account for about ${percent(strongest.shareOfEstimate)} of the estimate.`,
       );
     }
   }
@@ -195,6 +197,63 @@ function sensitivityParagraph(graph: GraphSpec, analysis: AnalysisResult, cited:
     sentences.push(
       `The E-value (VanderWeele & Ding, 2017)${contrast} was ${evalue.point.toFixed(2)} for the estimate and ${evalue.interval.toFixed(2)} for the end of the confidence interval nearer the null${conversion}.`,
     );
+  }
+  return sentences.join(" ");
+}
+
+function comparisonParagraph(analysis: AnalysisResult): string | null {
+  const { comparison } = analysis;
+  const usable = comparison?.graphs.filter((graph) => !graph.problem) ?? [];
+  if (!comparison || usable.length < 2) {
+    return null;
+  }
+  const estimates = usable.map((graph) => graph.estimate).filter((estimate): estimate is EffectEstimate => Boolean(estimate));
+  const sorted = [...estimates].sort((left, right) => left.estimate - right.estimate);
+  const sets = comparison.answers.filter((answer) => answer.adjustmentSet !== null).length;
+  const noSet = usable.filter((graph) => graph.adjustmentSet === null).length;
+  const sentences = [
+    `Because we were unsure of the graph, we repeated the analysis under ${usable.length} candidate graphs on the same data. They led to ${plural(sets, "adjustment set", "different adjustment sets")}${
+      sorted.length > 1 && sets > 1 ? `, with estimates from ${effectValue(sorted[0])} to ${effectValue(sorted[sorted.length - 1])}` : ""
+    }${noSet ? `, and ${noSet === 1 ? "one graph leaves" : `${noSet} graphs leave`} no valid set of measured variables` : ""}.`,
+  ];
+  const { sharedSet } = comparison;
+  if (sharedSet?.estimate) {
+    sentences.push(
+      `Adjusting for ${joinNames(sharedSet.variables)} is valid under ${sharedSet.validIn.length} of them and gives ${effectValue(sharedSet.estimate)} (95% CI ${effectInterval(sharedSet.estimate)}), which holds only if one of those graphs is correct.`,
+    );
+  }
+  const checked = usable.filter((graph) => graph.checks?.length);
+  if (checked.length) {
+    const contradicted = checked.filter((graph) => graph.checks!.some((check) => check.conflict));
+    sentences.push(
+      contradicted.length
+        ? `The data contradicted at least one implied conditional independence under ${contradicted.length} of the ${checked.length} graphs with independences to test, which does not show that the others are correct.`
+        : `The data contradicted no implied conditional independence under any of the ${checked.length} graphs with independences to test, which does not show that any of them is correct.`,
+    );
+  }
+  return sentences.join(" ");
+}
+
+function scanParagraph(analysis: AnalysisResult): string | null {
+  const { scan } = analysis;
+  if (!scan || !scan.analysed) {
+    return null;
+  }
+  const estimates = scan.answers.map((answer) => answer.estimate).filter((estimate): estimate is EffectEstimate => Boolean(estimate));
+  const sorted = [...estimates].sort((left, right) => left.estimate - right.estimate);
+  const pairs = scan.pairs.map(({ first, second }) => `${first} and ${second}`);
+  const matters = scan.pairEffects.filter((pair) => pair.changesAnswer).map(({ first, second }) => `${first} and ${second}`);
+  const sentences = [
+    `We were unsure whether an arrow joins ${joinNames(pairs)}, or which way it runs, so we tried each combination of an arrow in either direction or none. ${
+      scan.analysed === scan.combinations
+        ? `All ${plural(scan.combinations, "combination", "combinations")} were analysed.`
+        : `Of ${plural(scan.combinations, "combination", "combinations")}, ${scan.analysed} ${scan.analysed === 1 ? "was" : "were"} analysed; the others would run backwards in time or form a cycle${scan.truncated ? ", or were not reached within the time limit" : ""}.`
+    }`,
+    `They led to ${plural(scan.answers.length, "answer", "different answers")}${sorted.length > 1 ? `, with estimates from ${effectValue(sorted[0])} to ${effectValue(sorted[sorted.length - 1])}` : ""}.`,
+    matters.length ? `The answer depends on ${joinNames(matters)}.` : "Taken one at a time, none of these pairs changes the answer.",
+  ];
+  if (scan.sharedSet?.estimate) {
+    sentences.push(`Adjusting for ${joinNames(scan.sharedSet.variables)} is valid under ${scan.sharedSet.validIn} of the combinations and gives ${effectValue(scan.sharedSet.estimate)} (95% CI ${effectInterval(scan.sharedSet.estimate)}).`);
   }
   return sentences.join(" ");
 }
@@ -223,8 +282,20 @@ export function buildMethodsText(graph: GraphSpec, analysis: AnalysisResult): Me
       paragraphs.push(sensitivity);
     }
   }
+  const comparison = comparisonParagraph(analysis);
+  if (comparison) {
+    paragraphs.push(comparison);
+  }
+  const scan = scanParagraph(analysis);
+  if (scan) {
+    paragraphs.push(scan);
+  }
   if (estimate) {
-    paragraphs.push("The analysis was run with Causal Graph Workbench. The accompanying script reproduces these numbers from the data file.");
+    paragraphs.push(
+      comparison || scan
+        ? "The analysis was run with Causal Graph Workbench. The accompanying script reproduces the numbers for the graph described first from the data file. It does not cover the other graphs tried."
+        : "The analysis was run with Causal Graph Workbench. The accompanying script reproduces these numbers from the data file.",
+    );
   }
 
   return { paragraphs, references: (Object.keys(REFERENCES) as (keyof typeof REFERENCES)[]).filter((key) => cited.has(key)).map((key) => REFERENCES[key]).sort() };

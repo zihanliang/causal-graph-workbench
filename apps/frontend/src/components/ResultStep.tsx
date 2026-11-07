@@ -2,36 +2,40 @@ import type { AnalysisResult, EffectEstimate, GraphSpec } from "@causal-graph-wo
 import { useState } from "react";
 
 import { effectInterval, effectValue, joinNames, shortList } from "../lib/format";
-import { useWorkbenchStore, type PanelTab } from "../store/useWorkbenchStore";
+import { selectIsDraft, useWorkbenchStore, type PanelTab } from "../store/useWorkbenchStore";
 import { AssumptionsTab } from "./AssumptionsTab";
 import { CodeTab } from "./CodeTab";
-import { DetailsTab } from "./DetailsTab";
-import { SetsTab } from "./SetsTab";
+import { CompareTab } from "./CompareTab";
+import { StepsTab } from "./StepsTab";
 import { Disclosure, IssueList } from "./ui";
 
 const MAX_NAMES_IN_TITLE = 6;
 
+/** Each tab answers one question about the result, in the order someone would ask them. */
 const TABS: { id: PanelTab; label: string }[] = [
-  { id: "assumptions", label: "What it rests on" },
-  { id: "sets", label: "Other choices" },
+  { id: "steps", label: "How it was worked out" },
+  { id: "assumptions", label: "How sure can you be" },
+  { id: "compare", label: "Compare graphs" },
   { id: "code", label: "Write-up" },
-  { id: "details", label: "Details" },
 ];
 
 export function ResultStep({ analysis, graph }: { analysis: AnalysisResult | null; graph: GraphSpec }) {
   const activeTab = useWorkbenchStore((state) => state.activeTab);
   const setActiveTab = useWorkbenchStore((state) => state.setActiveTab);
+  const versionCount = useWorkbenchStore((state) => state.versions.length);
   const [snippetId, setSnippetId] = useState<string | null>(null);
 
   const showSnippet = (id: string) => {
     setSnippetId(id);
     setActiveTab("code");
   };
-  const canShowTabs = Boolean(analysis?.validation.canAnalyze);
+  // For a moment after an edit the analysis is of the graph before it, and a question with no outcome cannot be described.
+  const hasQuestion = Boolean(graph.treatmentId && graph.outcomeId);
+  const canShowTabs = Boolean(analysis?.validation.canAnalyze) && hasQuestion;
 
   return (
     <>
-      <ResultHeader analysis={analysis} onShowSnippet={showSnippet} />
+      <ResultHeader analysis={hasQuestion || !analysis?.validation.canAnalyze ? analysis : null} onShowSnippet={showSnippet} />
 
       {canShowTabs ? (
         <>
@@ -40,15 +44,16 @@ export function ResultStep({ analysis, graph }: { analysis: AnalysisResult | nul
               <button key={tab.id} type="button" role="tab" className="tab" aria-selected={tab.id === activeTab} onClick={() => setActiveTab(tab.id)}>
                 {tab.label}
                 {tab.id === "assumptions" && analysis?.audit?.assumptions.length ? <span className="tab__count">{analysis.audit.assumptions.length}</span> : null}
+                {tab.id === "compare" && versionCount > 1 ? <span className="tab__count">{versionCount}</span> : null}
               </button>
             ))}
           </div>
 
           <div className="panel__body" role="tabpanel">
+            {activeTab === "steps" ? <StepsTab analysis={analysis} graph={graph} /> : null}
             {activeTab === "assumptions" ? <AssumptionsTab analysis={analysis} graph={graph} /> : null}
-            {activeTab === "sets" ? <SetsTab analysis={analysis} /> : null}
+            {activeTab === "compare" ? <CompareTab analysis={analysis} /> : null}
             {activeTab === "code" ? <CodeTab analysis={analysis} snippetId={snippetId} onSelectSnippet={setSnippetId} /> : null}
-            {activeTab === "details" ? <DetailsTab analysis={analysis} /> : null}
           </div>
         </>
       ) : null}
@@ -148,8 +153,64 @@ function ResultHeader({ analysis, onShowSnippet }: { analysis: AnalysisResult | 
       </p>
 
       {set !== null ? <EffectLine analysis={analysis} estimate={estimate} onShowSnippet={onShowSnippet} /> : null}
+      <OtherGraphsLine analysis={analysis} />
+      <UnsureArrowsLine analysis={analysis} />
+      <DraftLine />
       {warnings.length ? <IssueList issues={warnings} /> : null}
     </header>
+  );
+}
+
+/** The answer above takes one side on arrows marked as not sure, and the other side can change it. */
+function UnsureArrowsLine({ analysis }: { analysis: AnalysisResult }) {
+  const setActiveTab = useWorkbenchStore((state) => state.setActiveTab);
+  const answers = analysis.scan?.answers.length ?? 0;
+  if (answers < 2) {
+    return null;
+  }
+  return (
+    <p className="hint unsure-note">
+      This depends on arrows you marked as not sure: every combination together gives {answers} answers.{" "}
+      <button type="button" className="link-button" onClick={() => setActiveTab("compare")}>
+        See them
+      </button>
+    </p>
+  );
+}
+
+/** A draft looks like any other graph, and assumes more than it appears to. */
+function DraftLine() {
+  const isDraft = useWorkbenchStore(selectIsDraft);
+  const setStep = useWorkbenchStore((state) => state.setStep);
+  if (!isDraft) {
+    return null;
+  }
+  return (
+    <p className="hint">
+      From a first graph that says only what time order allows.{" "}
+      <button type="button" className="link-button" onClick={() => setStep("graph")}>
+        What that assumes
+      </button>
+    </p>
+  );
+}
+
+/** With several graphs, the answer above is only about the one that is open. */
+function OtherGraphsLine({ analysis }: { analysis: AnalysisResult }) {
+  const versions = useWorkbenchStore((state) => state.versions);
+  const activeVersionId = useWorkbenchStore((state) => state.activeVersionId);
+  const setActiveTab = useWorkbenchStore((state) => state.setActiveTab);
+  if (versions.length < 2) {
+    return null;
+  }
+  const answers = analysis.comparison?.answers.length;
+  return (
+    <p className="hint">
+      Showing {versions.find((version) => version.id === activeVersionId)?.name}. Your {versions.length} graphs give {answers === undefined ? "…" : `${answers} ${answers === 1 ? "answer" : "answers"}`}.{" "}
+      <button type="button" className="link-button" onClick={() => setActiveTab("compare")}>
+        Compare them
+      </button>
+    </p>
   );
 }
 

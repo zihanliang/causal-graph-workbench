@@ -10,35 +10,28 @@ import type {
   ReproductionInputs,
   ValidationSummary,
   VariableTiming,
-  VariableType,
 } from "@causal-graph-workbench/shared";
 
 import {
-  chooseRecommendedSet,
   createAdjustmentProblem,
   findCautionVariables,
   findForbiddenVariables,
-  isValidAdjustmentSet,
   listMinimalSets,
   listValidSets,
   summarizeAdjustmentSets,
 } from "./adjustment";
-import { runAudit, type AuditInput, type AuditSnapshot } from "./audit";
+import { runAudit, type AuditInput } from "./audit";
 import { generateCodeSnippets } from "./codegen";
-import {
-  binaryCoding,
-  inferNodeType,
-  profileDataset,
-  resolvedColumnBindings,
-  withCovariateDiagnostics,
-} from "./data/diagnostics";
+import { compareGraphs } from "./compare";
+import { binaryCoding, profileDataset, withCovariateDiagnostics } from "./data/diagnostics";
 import type { DataTable } from "./data/table";
-import type { EffectContext } from "./effect";
 import { recommendEstimators } from "./estimators";
-import { Dag, sortedSet } from "./graph";
-import { mergeUpdate } from "./mergeUpdate";
+import { Dag } from "./graph";
+import { mergeUpdate, type AnalysisUpdate } from "./mergeUpdate";
 import { countDirectedPaths, enumeratePaths, materializePaths, MAX_LISTED_PATHS, pathStatus } from "./paths";
 import { summarizeNodeRoles } from "./roles";
+import { scanUncertainArrows } from "./scan";
+import { chooseSets, effectSetup, unmatchedVariables } from "./setup";
 import { validateGraph } from "./validation";
 
 /** Path-by-path explanations are kept for the current set, the recommended set and a few alternatives. */
@@ -81,10 +74,6 @@ function appendIssue(validation: ValidationSummary, issue: Omit<Issue, "nodeIds"
   return { ...validation, issues: [...validation.issues, { nodeIds: [], edgeIds: [], details: [], ...issue }] };
 }
 
-function effectiveType(requested: VariableType | undefined, nodeId: string, diagnostics: DataDiagnostics | null): VariableType {
-  return requested && requested !== "unknown" ? requested : inferNodeType(nodeId, diagnostics);
-}
-
 function emptyResult(graph: GraphSpec, validation: ValidationSummary, diagnostics: DataDiagnostics | null): AnalysisResult {
   return {
     validation,
@@ -100,6 +89,8 @@ function emptyResult(graph: GraphSpec, validation: ValidationSummary, diagnostic
     effect: null,
     sensitivity: null,
     audit: null,
+    comparison: null,
+    scan: null,
     reproduction: null,
     assumptions: ASSUMPTIONS,
     estimatorRecommendations: [],
@@ -115,29 +106,8 @@ function withOverlapCaveat(estimators: EstimatorRecommendation[], diagnostics: D
   if (!diagnostics?.overlapDiagnostics?.warnings.length) {
     return estimators;
   }
-  const caveat = "The overlap check flagged problems with this data (see Checks), so estimators that use the propensity score may be unstable.";
+  const caveat = "The overlap check flagged problems with this data, so estimators that use the propensity score may be unstable.";
   return estimators.map((item) => (PROPENSITY_ESTIMATORS.has(item.id) ? { ...item, caveats: [...item.caveats, caveat] } : item));
-}
-
-/** Variables the file cannot supply are treated as unmeasured, so a recommendation can always be estimated. */
-function unmatchedVariables(graph: GraphSpec, diagnostics: DataDiagnostics | null): string[] {
-  if (!diagnostics) {
-    return [];
-  }
-  return diagnostics.variableBindings
-    .filter((binding) => !binding.matched && binding.nodeId !== graph.treatmentId && binding.nodeId !== graph.outcomeId)
-    .map((binding) => binding.nodeId);
-}
-
-function unavailableEffectReason(graph: GraphSpec, diagnostics: DataDiagnostics): string | null {
-  const isBound = (node: string | null) => diagnostics.variableBindings.some((binding) => binding.nodeId === node && binding.matched);
-  if (!isBound(graph.treatmentId)) {
-    return `No column is matched to ${graph.treatmentId}. Match it under Data to estimate the effect.`;
-  }
-  if (!isBound(graph.outcomeId)) {
-    return `No column is matched to ${graph.outcomeId}. Match it under Data to estimate the effect.`;
-  }
-  return null;
 }
 
 interface Prepared {
@@ -181,15 +151,9 @@ function prepare(request: AnalysisRequest): Prepared {
     return true;
   });
 
-  const recommended = chooseRecommendedSet(minimal.sets, nodeRoles);
   const forbiddenVariables = findForbiddenVariables(problem, nodeRoles);
   const cautionVariables = findCautionVariables(problem, nodeRoles, forbiddenVariables);
-
-  // The user's own set takes over when it is valid; otherwise it is only shown for comparison.
-  const known = new Set(graph.nodes.map((node) => node.id));
-  const chosen = dataContext.chosenSet ? sortedSet(dataContext.chosenSet.filter((node) => known.has(node))) : null;
-  const chosenIsValid = chosen !== null && isValidAdjustmentSet(problem, chosen);
-  const baseline = chosenIsValid ? chosen : recommended;
+  const { recommended, chosen, chosenIsValid, baseline } = chooseSets(graph, problem, minimal.sets, nodeRoles, dataContext);
 
   if (recommended === null) {
     validation = appendIssue(validation, {
@@ -233,9 +197,7 @@ function prepare(request: AnalysisRequest): Prepared {
     return true;
   });
 
-  const treatmentType = effectiveType(dataContext.treatmentType, treatment, diagnostics);
-  const outcomeType = effectiveType(dataContext.outcomeType, outcome, diagnostics);
-  const bindings = resolvedColumnBindings(graph, diagnostics);
+  const { treatmentType, outcomeType, bindings, boundNodes, unavailable, effectContext } = effectSetup(graph, dataContext, diagnostics, table);
   const covariates = baseline ?? [];
   const estimand = dataContext.estimand ?? "ate";
   const context: DataContext = {
@@ -276,23 +238,6 @@ function prepare(request: AnalysisRequest): Prepared {
 
   let auditInput: AuditInput | null = null;
   if (baseline !== null) {
-    const boundNodes = new Set(
-      diagnostics ? diagnostics.variableBindings.filter((binding) => binding.matched).map((binding) => binding.nodeId) : [],
-    );
-    const unavailable = diagnostics ? unavailableEffectReason(graph, diagnostics) : null;
-    const typeOfColumn = (column: string): VariableType =>
-      diagnostics?.columnProfiles.find((profile) => profile.columnName === column)?.inferredType ?? "unknown";
-    const effectContext: EffectContext | null =
-      table && diagnostics && !unavailable
-        ? {
-            table,
-            treatment: { column: bindings[treatment], type: treatmentType },
-            outcome: { column: bindings[outcome], type: outcomeType },
-            estimand,
-            columnOf: (node) => (boundNodes.has(node) ? { column: bindings[node], type: typeOfColumn(bindings[node]) } : null),
-          }
-        : null;
-
     auditInput = {
       dag,
       treatment,
@@ -331,6 +276,8 @@ function prepare(request: AnalysisRequest): Prepared {
     effect: null,
     sensitivity: null,
     audit: null,
+    comparison: null,
+    scan: null,
     reproduction,
     assumptions: ASSUMPTIONS,
     estimatorRecommendations:
@@ -363,12 +310,22 @@ function prepare(request: AnalysisRequest): Prepared {
  * The structural result comes first and is fast. The audit and estimates follow as updates, so a large
  * file never holds up the graph. `structure` is yielded once; each update replaces the previous one.
  */
-export function* analyzeInStages(request: AnalysisRequest): Generator<{ structure: AnalysisResult } | { update: AuditSnapshot }, void, void> {
+export function* analyzeInStages(request: AnalysisRequest): Generator<{ structure: AnalysisResult } | { update: AnalysisUpdate }, void, void> {
   const { result, auditInput } = prepare(request);
   yield { structure: result };
   if (auditInput) {
     for (const update of runAudit(auditInput)) {
       yield { update };
+    }
+  }
+  if ((request.versions?.length ?? 0) >= 2) {
+    for (const comparison of compareGraphs(request)) {
+      yield { update: { comparison } };
+    }
+  }
+  if (request.uncertainPairs?.length) {
+    for (const scan of scanUncertainArrows(request)) {
+      yield { update: { scan } };
     }
   }
 }

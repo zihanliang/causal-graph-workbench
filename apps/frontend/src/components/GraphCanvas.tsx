@@ -21,7 +21,7 @@ import "@xyflow/react/dist/style.css";
 import { useEffect, useMemo, useState, type RefObject } from "react";
 
 import { roleCaption } from "../lib/format";
-import { useWorkbenchStore } from "../store/useWorkbenchStore";
+import { selectPreviewArrow, selectStepFocus, useWorkbenchStore } from "../store/useWorkbenchStore";
 
 interface GraphCanvasProps {
   graph: GraphSpec;
@@ -30,11 +30,14 @@ interface GraphCanvasProps {
 }
 
 const PREVIEW_EDGE_ID = "__assumption-preview";
+const MISSING_EDGE_PREFIX = "__missing-";
+const UNSURE_EDGE_PREFIX = "__unsure-";
 const ARROW_GAP = 3;
 const FIT_VIEW = { padding: 0.12, duration: 240, maxZoom: 1.1 };
 const COLORS = {
   ink: "#131416",
   arrow: "#8a8f94",
+  background: "#d3d6da",
   causal: "#c2552b",
   whatIf: "#2f70bb",
   focus: "#131416",
@@ -85,7 +88,10 @@ function GraphCanvasInner({ graph, analysis, graphShellRef }: GraphCanvasProps) 
   const removeEdge = useWorkbenchStore((state) => state.removeEdge);
   const selectedExplainable = useWorkbenchStore((state) => state.selectedExplainable);
   const highlightedPathId = useWorkbenchStore((state) => state.highlightedPathId);
-  const previewArrow = useWorkbenchStore((state) => state.previewArrow);
+  const previewArrow = useWorkbenchStore(selectPreviewArrow);
+  const stepFocus = useWorkbenchStore(selectStepFocus);
+  const firstVersion = useWorkbenchStore((state) => (state.versions[0]?.id !== state.activeVersionId ? state.versions[0] : null));
+  const uncertainPairs = useWorkbenchStore((state) => state.uncertainPairs);
   const layoutVersion = useWorkbenchStore((state) => state.layoutVersion);
   const isDrawing = useWorkbenchStore((state) => state.step === "graph");
   const setSelectedExplainable = useWorkbenchStore((state) => state.setSelectedExplainable);
@@ -148,6 +154,30 @@ function GraphCanvasInner({ graph, analysis, graphShellRef }: GraphCanvasProps) 
     return edges;
   }, [analysis?.paths]);
 
+  // "Paths": the arrows on backdoor paths that are open before adjusting.
+  const openBackdoorEdges = useMemo(() => {
+    const edges = new Set<string>();
+    if (stepFocus === "paths") {
+      for (const path of analysis?.paths ?? []) {
+        if (path.category === "backdoor" && path.defaultEvaluation.isOpen) {
+          path.nodes.slice(0, -1).forEach((left, index) => {
+            edges.add(`${left}->${path.nodes[index + 1]}`);
+            edges.add(`${path.nodes[index + 1]}->${left}`);
+          });
+        }
+      }
+    }
+    return edges;
+  }, [stepFocus, analysis?.paths]);
+  // "What to adjust for": the set, and what to leave out.
+  const adjustedNodes = new Set(stepFocus === "set" ? (analysis?.baselineSet ?? []) : []);
+  const avoidedNodes = new Set(stepFocus === "set" ? (analysis?.forbiddenVariables ?? []).map((item) => item.nodeId) : []);
+
+  // With several graphs, how this one differs from the first.
+  const firstEdges = new Set(firstVersion?.graph.edges.map((edge) => `${edge.source}->${edge.target}`) ?? []);
+  const currentEdges = new Set(graph.edges.map((edge) => `${edge.source}->${edge.target}`));
+  const nodeIds = new Set(graph.nodes.map((node) => node.id));
+
   const roleLookup = new Map(analysis?.nodeRoles.map((item) => [item.nodeId, item.roles]) ?? []);
 
   const nodes: Node[] = graph.nodes.map((node) => {
@@ -169,7 +199,13 @@ function GraphCanvasInner({ graph, analysis, graphShellRef }: GraphCanvasProps) 
       },
       position: { x: node.x, y: node.y },
       selected: selectedExplainable?.kind === "node" && selectedExplainable.id === node.id,
-      className: nodeClass(node.id, isMeasured, graph, roles, selectedExplainable, highlightedNodes.has(node.id)),
+      className: [
+        nodeClass(node.id, isMeasured, graph, roles, selectedExplainable, highlightedNodes.has(node.id)),
+        adjustedNodes.has(node.id) ? "node--adjusted" : "",
+        avoidedNodes.has(node.id) ? "node--avoided" : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
     };
   });
 
@@ -177,7 +213,11 @@ function GraphCanvasInner({ graph, analysis, graphShellRef }: GraphCanvasProps) 
     const goesAway = previewArrow && previewArrow.edit !== "add" && previewArrow.source === edge.source && previewArrow.target === edge.target;
     const isHighlighted = highlightedEdges.has(edge.id);
     const isCausal = causalEdges.has(edge.id);
-    const color = goesAway ? COLORS.whatIf : isHighlighted ? COLORS.focus : isCausal ? COLORS.causal : COLORS.arrow;
+    const isOpenBackdoor = openBackdoorEdges.has(edge.id);
+    const isNewHere = Boolean(firstVersion) && !firstEdges.has(edge.id);
+    const isUnsure = uncertainPairs.some((pair) => (pair.first === edge.source && pair.second === edge.target) || (pair.first === edge.target && pair.second === edge.source));
+    const isFaint = edge.background && !isUnsure && !isHighlighted && !isOpenBackdoor && !isNewHere && !goesAway;
+    const color = goesAway ? COLORS.whatIf : isHighlighted || isOpenBackdoor ? COLORS.focus : isNewHere ? COLORS.whatIf : isCausal ? COLORS.causal : isFaint ? COLORS.background : COLORS.arrow;
     return {
       id: edge.id,
       type: "causal",
@@ -188,8 +228,8 @@ function GraphCanvasInner({ graph, analysis, graphShellRef }: GraphCanvasProps) 
       markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color },
       style: {
         stroke: color,
-        strokeWidth: selectedEdgeId === edge.id || isHighlighted || goesAway ? 2.5 : isCausal ? 2.25 : 1.5,
-        ...(goesAway ? { strokeDasharray: "3 5" } : {}),
+        strokeWidth: selectedEdgeId === edge.id || isHighlighted || goesAway ? 2.5 : isCausal || isOpenBackdoor || isNewHere ? 2.25 : isFaint ? 1 : 1.5,
+        ...(goesAway ? { strokeDasharray: "3 5" } : isUnsure ? { strokeDasharray: "6 4" } : {}),
       },
     };
   });
@@ -207,6 +247,40 @@ function GraphCanvasInner({ graph, analysis, graphShellRef }: GraphCanvasProps) 
       markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: COLORS.whatIf },
       style: { stroke: COLORS.whatIf, strokeWidth: 2.5, strokeDasharray: "7 5" },
     });
+  }
+
+  // A pair marked as not sure with no arrow between them yet: a dashed line with no direction.
+  for (const { first, second } of uncertainPairs) {
+    const hasArrow = currentEdges.has(`${first}->${second}`) || currentEdges.has(`${second}->${first}`);
+    if (!hasArrow && nodeIds.has(first) && nodeIds.has(second)) {
+      edges.push({
+        id: `${UNSURE_EDGE_PREFIX}${first}-${second}`,
+        type: "causal",
+        source: first,
+        target: second,
+        selectable: false,
+        deletable: false,
+        focusable: false,
+        style: { stroke: COLORS.arrow, strokeWidth: 1.25, strokeDasharray: "6 4" },
+      });
+    }
+  }
+
+  // An arrow the first graph has and this one does not, drawn faintly so that the difference can be seen.
+  for (const edge of firstVersion?.graph.edges ?? []) {
+    if (!currentEdges.has(`${edge.source}->${edge.target}`) && nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
+      edges.push({
+        id: `${MISSING_EDGE_PREFIX}${edge.id}`,
+        type: "causal",
+        source: edge.source,
+        target: edge.target,
+        selectable: false,
+        deletable: false,
+        focusable: false,
+        markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: COLORS.whatIf },
+        style: { stroke: COLORS.whatIf, strokeWidth: 1.25, strokeDasharray: "3 5", opacity: 0.7 },
+      });
+    }
   }
 
   return (

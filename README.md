@@ -24,8 +24,27 @@ adjustment set from being valid, it shows what would change, ranked by how far t
 
 That example is built in: **Training program: one arrow is wrong** is simulated data where the true effect is 2.8.
 
+**How the answer was reached.** Six steps, each saying its result in a line and opening for the detail: the question, the paths, what to
+adjust for, the data, the estimate and the check. The graph shows what each step is about. The built-in example walks through them from
+the start, rather than opening on the finished result.
+
 **What the same data says under other choices.** No adjustment gives 4.88 there, and adjusting for everything measured gives 0.27.
 You can test the set you actually used and see whether it is valid, and if not, why.
+
+**What to do when you are not sure of the graph.** Keep several graphs side by side, up to six, and compare them on the same file. Each
+gets its own adjustment set, estimate and data check. Graphs that lead to the same set are grouped as one answer, and where one set is
+valid under graphs that would otherwise disagree, the page says so, because then you do not have to choose between them first. In that
+example, adding education → training and adding something unmeasured behind both give the same 2.882, and adjusting for age, education
+and prior_earnings is valid with or without the arrow. Graphs are never ranked, for the reason below.
+
+You can also mark up to four pairs of variables as not sure. Every combination of an arrow one way, the other way, or none is tried on the
+graph on show, leaving out those that run backwards in time or form a cycle. The page says how many answers they lead to and which pair the
+answer depends on, and any combination can be kept as a graph to compare.
+
+**A way in without a graph.** Start from a data file and say when each column was fixed, relative to treatment. The first graph says only what
+time order allows: anything earlier may affect anything later. So the data has nothing to contradict, and everything measured before treatment
+is adjusted for. Remove the arrows you are sure do not exist, and the data can start checking you. A column whose timing you do not know is
+tried both ways.
 
 **How strong something unmeasured would have to be.** No test can see a confounder you did not measure, so the app says what it would
 take: in that example, something would have to explain 37.8% of what the adjustment leaves unexplained in both treatment and outcome to
@@ -49,11 +68,19 @@ These limits come from testing the app on simulated data where the truth is know
   either a missing arrow or something unmeasured.
 - **No conflict does not mean the graph is right.** A harmful missing arrow is detected 100% of the time with strong effects and 2,000
   rows, about 70% with medium effects and 500 rows, and under 10% with weak effects and 200 rows. There is no "passed" state.
-- **Only single-arrow errors are checked.** Graphs that are wrong in several places at once can behave differently.
+- **Only single-arrow errors are checked.** Graphs that are wrong in several places at once can behave differently. To look at those,
+  draw them and compare them.
+- **The data can rule a graph out, but it cannot pick one.** Graphs can imply exactly the same independences and still give different
+  answers. In that example, once education → training is added, also reversing prior_earnings → training passes every check and gives 2.03,
+  whose interval misses the true effect, and only the timing of the variables shows it is wrong. A graph with every arrow claims nothing testable, so it can never be contradicted,
+  right or wrong. So the page says which graphs the checks cannot separate, and never which is best.
+- **A first graph from time order is a starting point, not a safe default.** In simulation it recovered the effect when every confounder was
+  measured, covering it 94% to 95% of the time. With a strong unmeasured confounder, or a variable measured before treatment that is an effect of
+  two strong unmeasured causes, its interval almost never contained the truth, and no check flagged it. The page says so before the graph is built.
 - **How strong is a measure, not a verdict.** The robustness value and E-value say how strong something unmeasured would have to be, not
   whether it exists, and they consider one confounder at a time. Comparing it with a measured variable is a guide to size, not a limit: in
   simulation the true bias of a variable that strong ran from about 0.7 to 1.4 times the figure shown.
-- **Not covered:** causal discovery, instrumental variables, frontdoor identification, mediation decomposition, selection diagrams,
+- **Not covered:** causal discovery (the app never proposes arrows from the data), instrumental variables, frontdoor identification, mediation decomposition, selection diagrams,
   transportability, and time-varying treatments.
 
 The graph is your assumption, and every result here is conditional on it.

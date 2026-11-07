@@ -367,6 +367,6 @@ describe("audit edge cases", () => {
     const stages = [...analyzeInStages({ graph: graph("Z -> X, Z -> Y, X -> Y") })];
     expect("structure" in stages[0]).toBe(true);
     const last = stages[stages.length - 1];
-    expect("update" in last && last.update.audit.status).toBe("complete");
+    expect("update" in last && last.update.audit?.status).toBe("complete");
   });
 });

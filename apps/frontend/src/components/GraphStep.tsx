@@ -2,8 +2,9 @@ import type { AnalysisResult, GraphNode, RoleType, VariableTiming } from "@causa
 import { useEffect, useRef, useState } from "react";
 
 import { roleCaption } from "../lib/format";
-import { useWorkbenchStore } from "../store/useWorkbenchStore";
-import { Disclosure, Icon, IssueList } from "./ui";
+import { selectIsDraft, useWorkbenchStore } from "../store/useWorkbenchStore";
+import { MAX_UNCERTAIN_PAIRS, samePair } from "../lib/graphVersions";
+import { Disclosure, Icon, IssueList, Notice } from "./ui";
 
 const TIMING_OPTIONS: { value: VariableTiming | ""; label: string }[] = [
   { value: "", label: "Timing not set" },
@@ -33,6 +34,13 @@ export function GraphStep({ analysis }: { analysis: AnalysisResult | null }) {
   const importFromText = useWorkbenchStore((state) => state.importFromText);
   const setSelectedExplainable = useWorkbenchStore((state) => state.setSelectedExplainable);
   const setStep = useWorkbenchStore((state) => state.setStep);
+  const isTouring = useWorkbenchStore((state) => state.tourStop !== null);
+  const versions = useWorkbenchStore((state) => state.versions);
+  const activeVersionId = useWorkbenchStore((state) => state.activeVersionId);
+  const isDraft = useWorkbenchStore(selectIsDraft);
+  const uncertainPairs = useWorkbenchStore((state) => state.uncertainPairs);
+  const addUncertainPair = useWorkbenchStore((state) => state.addUncertainPair);
+  const removeUncertainPair = useWorkbenchStore((state) => state.removeUncertainPair);
 
   const [newName, setNewName] = useState("");
   // One variable's settings at a time, so a long list still fits on the screen.
@@ -82,6 +90,20 @@ export function GraphStep({ analysis }: { analysis: AnalysisResult | null }) {
       <header className="panel__head">
         <h1>Draw your graph</h1>
         <p>Add what you think matters, then draw an arrow for each direct cause.</p>
+        {versions.length > 1 ? (
+          <p className="hint">
+            You are editing {versions.find((version) => version.id === activeVersionId)?.name}. Your other graphs stay as they were. The question, and whether and when each variable is measured, are the same in all of them.
+          </p>
+        ) : null}
+        {isDraft ? (
+          <Notice>
+            <strong>This first graph says only what time order allows:</strong> anything earlier may affect anything later, so the data has nothing to contradict, and every variable measured before treatment is adjusted for. That goes wrong if
+            something unmeasured affects both treatment and outcome, or if an earlier variable is itself an effect of two unmeasured causes. Remove the arrows you are sure do not exist, and the data can start checking you.{" "}
+            <button type="button" className="link-button" onClick={() => setStep("result")}>
+              See the result
+            </button>
+          </Notice>
+        ) : null}
       </header>
 
       <div className="panel__body">
@@ -195,16 +217,33 @@ export function GraphStep({ analysis }: { analysis: AnalysisResult | null }) {
               {graph.edges
                 .slice()
                 .sort((left, right) => left.source.localeCompare(right.source) || left.target.localeCompare(right.target))
-                .map((edge) => (
-                  <li key={edge.id}>
-                    <span>
-                      {edge.source} → {edge.target}
-                    </span>
-                    <button type="button" className="icon-button" aria-label={`Remove arrow ${edge.source} to ${edge.target}`} onClick={() => removeEdge(edge.id)}>
-                      <Icon name="close" />
-                    </button>
-                  </li>
-                ))}
+                .map((edge) => {
+                  const pair = { first: edge.source, second: edge.target };
+                  const isUnsure = uncertainPairs.some((item) => samePair(item, pair));
+                  const isQuestion = samePair(pair, { first: graph.treatmentId ?? "", second: graph.outcomeId ?? "" });
+                  return (
+                    <li key={edge.id}>
+                      <span>
+                        {edge.source} → {edge.target}
+                      </span>
+                      {isQuestion ? null : (
+                        <label className="check arrow-list__unsure">
+                          <input
+                            type="checkbox"
+                            aria-label={`Not sure about ${edge.source} to ${edge.target}`}
+                            checked={isUnsure}
+                            disabled={!isUnsure && uncertainPairs.length >= MAX_UNCERTAIN_PAIRS}
+                            onChange={(event) => (event.target.checked ? addUncertainPair(edge.source, edge.target) : removeUncertainPair(pair))}
+                          />
+                          <span>Not sure</span>
+                        </label>
+                      )}
+                      <button type="button" className="icon-button" aria-label={`Remove arrow ${edge.source} to ${edge.target}`} onClick={() => removeEdge(edge.id)}>
+                        <Icon name="close" />
+                      </button>
+                    </li>
+                  );
+                })}
             </ul>
           ) : null}
         </Disclosure>
@@ -221,14 +260,16 @@ export function GraphStep({ analysis }: { analysis: AnalysisResult | null }) {
         </Disclosure>
       </div>
 
-      <footer className="panel__foot">
-        <button type="button" className="btn btn--primary" onClick={() => setStep("data")}>
-          Next: add your data
-        </button>
-        <button type="button" className="btn btn--text" onClick={() => setStep("result")}>
-          Skip to the result
-        </button>
-      </footer>
+      {isTouring ? null : (
+        <footer className="panel__foot">
+          <button type="button" className="btn btn--primary" onClick={() => setStep("data")}>
+            Next: add your data
+          </button>
+          <button type="button" className="btn btn--text" onClick={() => setStep("result")}>
+            Skip to the result
+          </button>
+        </footer>
+      )}
     </>
   );
 }
